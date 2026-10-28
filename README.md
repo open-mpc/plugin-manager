@@ -79,6 +79,12 @@ Once it is listed in the catalog it should also install by id (`plugin-manager-g
 3. Press **APPLY**, check the summary, and confirm. Save your project first: MPC restarts.
 4. Reopen the manager. The status line reports the result; the new plugin is in the browser.
 
+**Choose where plugins go.** When more than one place can take plugins (the user drive and an SSD or card, say), the restart prompt names the
+folder the new ones will go to, with a **CHANGE** button that steps through the usable places. The place you confirm is remembered as the default
+for new installs; updates always stay where the plugin already is.
+
+![The restart prompt on a Force: "Install to: /media/662522/Synths (2 of 2)" with a CHANGE button](docs/screenshots/manager-install-location.png)
+
 **If something looks wrong**, the manager writes plain-text reports on the device: `/tmp/openmpc-pm/device.txt` (what it found: locations and why each
 was accepted or refused, tools, glibc), `manager.log`, and `apply.log` (what the last apply did). Attach `device.txt` to a bug report.
 
