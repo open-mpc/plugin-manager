@@ -24,7 +24,7 @@ See [Credits](#credits) for the full list and [NOTICE.md](NOTICE.md) for the lic
   Most downloaded, Name).
 - Five plugins per page, each with a thumbnail, its version, a Stable or Beta badge, a *High CPU* warning when the catalog measured one, an *Old
   install* badge, and **Tested: <device>** when someone ran it on that hardware. Tap a card for its details page.
-- Shows only what a Gen2 device can install: each catalog version lists a zip per architecture, and the manager takes the `aarch64` one.
+- Shows only what your device can install: each catalog version lists a zip per architecture, and the manager takes the one for your MPC (`aarch64` on Gen2, `armv7` on Gen1).
 
 **Install, update, remove**
 - **INSTALL**, **UPDATE** and **UPDATE ALL** queue changes; **REINSTALL** and **REMOVE** are in the card's ⋮ menu. Nothing changes until you press
@@ -76,8 +76,8 @@ was accepted or refused, tools, glibc), `manager.log`, and `apply.log` (what the
 
 ## Requirements and limits
 
-- A Gen2 (aarch64) MPC on MPC OS 3.x; the installer script needs root shell access once. A Gen1 (armv7) build is not shipped yet.
-- Tested on an **MPC Live III, MPC OS 3.10.0.49**. The MPC One Gen2 layout (`/storage/Synths`) is covered by an offline test built from a user's
+- A Gen1 (armv7: Force, MPC Live, One, X, Key) or Gen2 (aarch64: Live III and the other 64-bit models) MPC on MPC OS 3.x; the installer script needs root shell access once. One release carries both builds.
+- Tested on an **MPC Live III (Gen2), MPC OS 3.10.0.49**, and a **Force (Gen1)**. The MPC One Gen2 layout (`/storage/Synths`) is covered by an offline test built from a user's
   own output, not yet run on a One.
 - The device needs `systemd-run`, `unzip`, `sha256sum` and libcurl (all present on a stock Live III).
 - MPC restarts on APPLY; MPC OS 3.10 has no autorun route, so the first install uses SSH or the installer app.
