@@ -1024,6 +1024,18 @@ static int glibc_less(const char *a, const char *b) {   /* a < b, as "major.mino
     sscanf(b, "%d.%d", &b1, &b2);
     return a1 != b1 ? a1 < b1 : a2 < b2;
 }
+/* MPC caches every skin image it draws in /var/volatile/tmp/filmstrips, a RAM disk that only a reboot empties. Once it is full, new images fail to
+ * draw (black patches: Live III, 2026-10-28, 3497 files, 4 GB, 100%). Returns the percent used, or -1 when there is no such volume. */
+static int cache_used_pct(void) {
+    struct statvfs sv;
+    const char *dir = "/var/volatile";
+#ifdef FS_ANY
+    if (getenv("PM_CACHE_PCT")) return atoi(getenv("PM_CACHE_PCT"));   /* tests: a full RAM disk cannot be made in a container */
+#endif
+    if (statvfs(dir, &sv) || !sv.f_blocks) return -1;
+    return (int)(100.0 * (1.0 - (double)sv.f_bavail / (double)sv.f_blocks) + 0.5);
+}
+
 static void write_report(const device_t *d) {
     FILE *f = fopen(WORK "/device.txt", "w");
     if (!f) return;
@@ -1031,6 +1043,7 @@ static void write_report(const device_t *d) {
     if (uname(&u) == 0) fprintf(f, "uname: %s %s %s\n", u.machine, u.release, u.version);
     char *os = slurp("/etc/os-release", 4096);
     if (os) { char *v = strstr(os, "VERSION="); if (v) fprintf(f, "os: %.*s\n", (int)strcspn(v, "\n"), v); free(os); }
+    { int cp = cache_used_pct(); if (cp >= 0) fprintf(f, "image cache: /var/volatile %d%% used (85%% or more: skins draw black patches)\n", cp); }
     fprintf(f, "glibc: %s (reads as MPC OS %s)\n", dev_glibc(), glibc_less(dev_glibc(), "2.39") ? "2.x" : "3.x");
     fprintf(f, "settings: %s\nplugin lists: %s\nstate: %s\n", d->settings[0] ? d->settings : "(not found)", d->keys, d->state);
     char why[320], own[200];
@@ -1430,6 +1443,9 @@ static void do_refresh(mgr_t *m) {
     }
     else { m->sticky = 0; m->rev++; }
     show_result(m, m->pkg, m->npkg);
+    int cp = cache_used_pct();
+    if (cp >= 85 && !m->dev->problem[0] && m->status_kind != ERR)
+        say_locked(m, WARN, "MPC's image cache is %d%% full: restart the MPC (or reboot) before parts of this screen draw black", cp);
     pthread_mutex_unlock(&m->mu);
     free(tmp);
 }

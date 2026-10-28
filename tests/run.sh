@@ -181,6 +181,11 @@ grep -q "\"id\": \"armonly\", \"version\": \"1.0.0\", \"installed\": true" "$H" 
 echo '"'"'garbage'"'"' > "$H"; rm -rf /tmp/openmpc-pm; /tmp/drive_addins one Armonly > /dev/null; sh /tmp/openmpc-pm/apply.sh; /tmp/drive_addins status > /dev/null
 [ "$(cat "$H")" = garbage ] || { echo "FAIL: a file that is not ours was overwritten"; exit 1; }
 [ "$(ls "$SD" | grep -c '"'"'^MPC.settings.bak-'"'"')" -le 10 ] && [ ! -e "$SD/MPC.settings.bak-t01" ] && [ -e "$SD/MPC.settings.bak-t14" ] && [ -e "$SD/MPC.settings.keep" ] || { echo "FAIL: backup pruning"; ls "$SD"; exit 1; }
+# the image cache nearly full (black patches on a Live III): a warning, and none when there is room
+rm -rf /tmp/openmpc-pm; PM_CACHE_PCT=92 /tmp/drive_addins status > /tmp/safe-cache.out
+grep -qF "image cache is 92% full: restart the MPC" /tmp/safe-cache.out || { cat /tmp/safe-cache.out; exit 1; }
+rm -rf /tmp/openmpc-pm; PM_CACHE_PCT=10 /tmp/drive_addins status > /tmp/safe-cache2.out
+! grep -q "image cache" /tmp/safe-cache2.out
 echo "safety OK"
 # last: after it the next "rm -rf /media" fails in the container (cause not found), so nothing may follow it
 fi # safety
