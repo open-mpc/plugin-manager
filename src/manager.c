@@ -766,6 +766,17 @@ static int internal_device(const char *path) {
     return !strncmp(best_dev, "/dev/nvme", 9) || !strncmp(best_dev, "/dev/mmcblk0", 12) || !strncmp(best_dev, "/dev/loop", 9);
 }
 
+/* The banner and the status line for a `problem` (short: the banner is 590 px of 23 px text): what is wrong, in plain words. The reasons per
+ * location are in device.txt. */
+static void problem_words(const device_t *d, char *out, size_t n) {
+    const char *p = d->problem;
+    if (!strcmp(p, "No MPC.settings")) snprintf(out, n, "No MPC.settings found: nothing can be installed");
+    else if (!strcmp(p, "No install location") && !d->nloc) snprintf(out, n, "MPC lists no Synths folder to install into");
+    else if (!strcmp(p, "No install location")) snprintf(out, n, "None of MPC's %d Synths folders can take a plugin", d->nloc);
+    else if (!strncmp(p, "No ", 3)) snprintf(out, n, "This MPC lacks %s, which the manager needs", p + 3);
+    else snprintf(out, n, "%s", p);
+}
+
 /* why a Synths folder can't take a plugin (.so), or NULL if it can */
 static const char *bad_target(const char *path, char *why, size_t n) {
     char loc[200], parent[200];
@@ -1412,7 +1423,11 @@ static void do_refresh(mgr_t *m) {
     m->online = m->loaded = 1;
     m->disk_used = used;
     snprintf(m->disk_free, sizeof m->disk_free, "%s", freebuf);
-    if (m->dev->problem[0]) say_locked(m, ERR, "Installing is turned off on this MPC (%s)", m->dev->problem);
+    if (m->dev->problem[0]) {
+        char w[160];
+        problem_words(m->dev, w, sizeof w);
+        say_locked(m, ERR, "Installing is turned off: %s (reasons in " WORK "/device.txt)", w);
+    }
     else { m->sticky = 0; m->rev++; }
     show_result(m, m->pkg, m->npkg);
     pthread_mutex_unlock(&m->mu);
@@ -2136,7 +2151,7 @@ static int mgr_get_param(void *inst, const char *key, char *b, int n) {
     else if (!strcmp(key, "upd_count")) snprintf(b, n, "%d", upd);
     else if (!strcmp(key, "problem")) snprintf(b, n, "%d", m->dev->problem[0] != 0);
     else if (!strcmp(key, "problem_txt"))
-        snprintf(b, n, "Can't install on this MPC: %s  \xc2\xb7  details in " WORK "/device.txt", m->dev->problem);
+        problem_words(m->dev, b, n);
     else if (!strcmp(key, "empty")) snprintf(b, n, "%d", d >= 0 ? 0 : !m->loaded ? (m->online || m->busy == J_REFRESH ? 0 : 1) : nv == 0 ? 2 : 0);
     else if (!strcmp(key, "empty_txt")) {
         int addins = 0;

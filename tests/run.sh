@@ -27,7 +27,9 @@ for dev in tests/devices/${DEV:-*}.sh; do
   echo "   $(date +%T)"
   sh "$dev"
   mkdir -p /tmp/openmpc-pm /tmp/zipcache; cp /tmp/zipcache/*.zip /tmp/openmpc-pm/ 2>/dev/null || true   # the catalog zip downloaded once, not once per device
-  /tmp/drive && grep -E "location|target|problem" /tmp/openmpc-pm/device.txt
+  /tmp/drive > /tmp/drive.out && grep -E "location|target|problem" /tmp/openmpc-pm/device.txt
+  # tests/devices/<name>.banner: the red banner a device with a problem must show (plain words)
+  [ ! -f "${dev%.sh}.banner" ] || grep -qF -- "$(cat "${dev%.sh}.banner")" /tmp/drive.out || { echo "FAIL $dev: banner is not: $(cat "${dev%.sh}.banner")"; grep banner /tmp/drive.out | head -n 2; exit 1; }
   cp -n /tmp/openmpc-pm/*.zip /tmp/zipcache/ 2>/dev/null || true
   # tests/devices/<name>.expect: lines that must be in device.txt (a test fails without them)
   exp="${dev%.sh}.expect"

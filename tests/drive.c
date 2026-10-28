@@ -28,6 +28,7 @@ static void page(const char *k, int twice) { usleep((tapms() + 50) * 1000); if (
 
 static void cards(void) {
   printf("  [%s] %s | status(%s): %s | apply_state %s\n", get("page_txt"), get("summary"), get("status_kind"), get("status"), get("apply_state"));
+  if (get("problem")[0] == '1') printf("  banner: %s\n", get("problem_txt"));
   for (int r = 1; r <= 5; r++) {
     char k[32];
     #define F(f) (snprintf(k, sizeof k, "r%d_" f, r), get(k))
