@@ -57,7 +57,11 @@ static void prompt(void) {
 }
 
 static void wait_for(const char *key, const char *val) {
-  for (int i = 0; i < 120; i++) { if (!strcmp(get(key), val)) return; sleep(1); }
+  for (int i = 0; i < 120; i++) {
+    if (!strcmp(get(key), val)) return;
+    if (!strcmp(key, "apply_state") && !strcmp(get(key), "4")) { printf("  (apply_state=4 while waiting for %s: the prepare step failed)\n", val); return; }   /* failed: no point waiting out the timeout */
+    sleep(1);
+  }
   printf("  (timeout waiting for %s=%s)\n", key, val);
 }
 

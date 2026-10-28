@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Offline tests in the gcc:12 Docker image (needs network: they read the live catalog and download one zip).
-#   ONLY=<section> tests/run.sh   one section (devices addins links pick theme safety arch) in a minute or two; no ONLY: everything (about 20 minutes)
+#   ONLY=<section> tests/run.sh   one section (devices addins links pick theme safety arch) in a minute or two; no ONLY: everything (about 9 minutes)
 #   tests/run.sh            the wrapper host test, each fake device in tests/devices/, then the addin flow against
 #                           an offline fixture (tests/fixture.py: three addin packages and a file:// catalog)
 # A fake device is a shell script that builds the device's files inside the container: MPC.settings (the real format,
@@ -16,6 +16,7 @@ set -eo pipefail; [ -z "$TRACE" ] || set -x
 SAN="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1"
 want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }   # ONLY=safety: just that section (devices, addins, links, pick, theme, safety, arch)
 export PM_TAPMS=40   # the double-tap window, short (FS_ANY builds only)
+export PM_GLIBC=2.39   # a Gen2 / MPC OS 3.x glibc: the container has 2.36, which reads as OS 2.x and refused the live catalog packages (a 120 s wait per device)
 gcc $SAN -std=gnu11 -w -Ivst/build src/manager.c /mv/tools/host_test.c /mv/wrapper/vst2_wrap.c -lpthread -ldl -lm -o /tmp/host_test
 if want devices; then
 (cd /tmp && ./host_test | tail -n 1)
@@ -28,6 +29,8 @@ for dev in tests/devices/${DEV:-*}.sh; do
   sh "$dev"
   mkdir -p /tmp/openmpc-pm /tmp/zipcache; cp /tmp/zipcache/*.zip /tmp/openmpc-pm/ 2>/dev/null || true   # the catalog zip downloaded once, not once per device
   /tmp/drive > /tmp/drive.out && grep -E "location|target|problem" /tmp/openmpc-pm/device.txt
+  # a device that can install must get the first catalog plugin to "ready" (apply_state 3): a scenario that quietly timed out hid a broken install path for weeks
+  if grep -q "^problem: none" "${dev%.sh}.expect"; then grep -q "apply_state 3" /tmp/drive.out || { echo "FAIL $dev: the install never reached ready"; grep "status(" /tmp/drive.out | tail -n 2; exit 1; }; fi
   # tests/devices/<name>.banner: the red banner a device with a problem must show (plain words)
   [ ! -f "${dev%.sh}.banner" ] || grep -qF -- "$(cat "${dev%.sh}.banner")" /tmp/drive.out || { echo "FAIL $dev: banner is not: $(cat "${dev%.sh}.banner")"; grep banner /tmp/drive.out | head -n 2; exit 1; }
   cp -n /tmp/openmpc-pm/*.zip /tmp/zipcache/ 2>/dev/null || true
