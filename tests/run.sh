@@ -174,9 +174,12 @@ rm -rf "$LD"
 SD=$(dirname "$(find /media /data -name MPC.settings 2>/dev/null | head -n 1)")
 for k in 01 02 03 04 05 06 07 08 09 10 11 12 13 14; do echo b > "$SD/MPC.settings.bak-t$k"; touch -d "2026-01-$k 10:00" "$SD/MPC.settings.bak-t$k"; done
 echo keep > "$SD/MPC.settings.keep"
-# a success writes the history: Armonly (its install.sh exits 0)
+# a success writes the history: Armonly (its install.sh exits 0); the apply also empties MPC image cache (MPC is stopped, nothing has it open)
+mkdir -p /var/volatile/tmp/filmstrips; : > /var/volatile/tmp/filmstrips/temp_1.img; : > /var/volatile/tmp/filmstrips/keep.txt
 rm -rf /tmp/openmpc-pm; /tmp/drive_addins one Armonly > /dev/null
 sh /tmp/openmpc-pm/apply.sh
+[ ! -e /var/volatile/tmp/filmstrips/temp_1.img ] && [ -e /var/volatile/tmp/filmstrips/keep.txt ] || { echo "FAIL: the image cache was not emptied, or too much was"; ls /var/volatile/tmp/filmstrips; exit 1; }
+grep -q "image cache emptied" /tmp/openmpc-pm/apply.log
 grep -q "^armonly|ok|install 1.0.0" /tmp/openmpc-pm/result
 /tmp/drive_addins status > /dev/null
 H=$(find /media /data -name .openmpcpm-history.json 2>/dev/null | head -n 1 || true)

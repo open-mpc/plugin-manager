@@ -1640,7 +1640,10 @@ static void prepare(mgr_t *m, pkg_t *q) {
                        "mv \"$T/Plugin Skins\" \"$T/.skin.old\" && mv \"$T/.skin.new\" \"$T/Plugin Skins\" && rm -rf \"$T/.skin.old\" && "
                        "true\n", w, m->own, w);
         }
-        fprintf(f, "pidof MPC >/dev/null || systemctl start acvs\nrm -f \"$0\"\necho \"== done $(date)\"\n");
+        /* MPC's skin image cache (a RAM disk only a reboot empties) grows ~400 MB per MPC start and, full, makes skins draw black (Live III, 2026-10-28).
+         * MPC is stopped here, so nothing has the files open: empty it before MPC starts again, so the manager's own restarts do not fill it. */
+        fprintf(f, "if ! pidof MPC >/dev/null; then rm -f /var/volatile/tmp/filmstrips/temp_*.img 2>/dev/null; echo '-- image cache emptied'; fi\n"
+                   "pidof MPC >/dev/null || systemctl start acvs\nrm -f \"$0\"\necho \"== done $(date)\"\n");
         fclose(f);
     }
     pthread_mutex_lock(&m->mu);
