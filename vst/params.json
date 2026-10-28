@@ -473,7 +473,9 @@
     "q_update",
     "q_remove",
     "disabled",
-    "menu"
+    "menu",
+    "register",
+    "q_register"
    ]
   },
   {
@@ -621,7 +623,9 @@
     "q_update",
     "q_remove",
     "disabled",
-    "menu"
+    "menu",
+    "register",
+    "q_register"
    ]
   },
   {
@@ -769,7 +773,9 @@
     "q_update",
     "q_remove",
     "disabled",
-    "menu"
+    "menu",
+    "register",
+    "q_register"
    ]
   },
   {
@@ -917,7 +923,9 @@
     "q_update",
     "q_remove",
     "disabled",
-    "menu"
+    "menu",
+    "register",
+    "q_register"
    ]
   },
   {
@@ -1065,7 +1073,9 @@
     "q_update",
     "q_remove",
     "disabled",
-    "menu"
+    "menu",
+    "register",
+    "q_register"
    ]
   },
   {
