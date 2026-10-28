@@ -109,7 +109,7 @@ Candidates are the **`SynthContentLocations` entries** read from `MPC.settings`,
    at least 64 MB free. **No filesystem-name whitelist** (poloq's `bad_fs()` accepts only ext3/ext4/f2fs/btrfs, which is why the
    Gen2 `/nvme` exFAT drive and #9's exFAT card are rejected). Keep the leaf rule (`.../Synths`) until the leaf test is done.
 3. Show every candidate with its reason when unusable ("read-only", "noexec", "factory content", "under 64 MB").
-4. **Pick**: internal storage first (`/nvme`, `/sdcard`, `/media/az01-internal`), then others; the user can change it from the
+4. **Pick**: internal storage first (`/nvme`, `/sdcard`, `/media/az01-internal`, or any location on an internal device: `/dev/nvme*`, `/dev/mmcblk0*`, `/dev/loop*`, which is how an MPC One Gen2's `/synths` and `/storage` are told from its SD card and USB sticks; user report 2026-10-28, offline test `one-gen2-emmc`), then others; the user can change it from the
    screen (closes #10); an existing install of a plugin updates in place.
 5. **No usable listed location: stop, do not fall back.** Show "Can't install: none of MPC's content locations is writable"
    with the list and reasons, and write the same to `device.txt`. (poloq falls back to its own folder, an installed plugin's

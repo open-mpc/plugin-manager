@@ -746,6 +746,26 @@ static const char *bad_fs(const char *path, char *why, size_t n) {
     return ok ? NULL : why;
 }
 
+/* Is the drive under `path` part of the device (eMMC, NVMe, a loop image of its storage) rather than something that can be pulled out (a USB stick,
+ * the SD card: /dev/sd*, /dev/mmcblk1*)? The MPC One Gen2 has no /nvme: its internal Synths are on /synths (mmcblk0) or /storage (loop0). */
+static int internal_device(const char *path) {
+#ifdef FS_ANY
+    FILE *f = fopen(!access("/tmp/pm-mounts", R_OK) ? "/tmp/pm-mounts" : "/proc/mounts", "r");
+#else
+    FILE *f = fopen("/proc/mounts", "r");
+#endif
+    char dev[128], mnt[256], type[32], opts[512], best_dev[128] = "";
+    size_t best = 0;
+    while (f && fscanf(f, "%127s %255s %31s %511s %*d %*d", dev, mnt, type, opts) == 4) {
+        size_t l = strlen(mnt);
+        if (strncmp(path, mnt, l) || (path[l] && path[l] != '/' && l > 1) || l < best) continue;
+        best = l;
+        snprintf(best_dev, sizeof best_dev, "%s", dev);
+    }
+    if (f) fclose(f);
+    return !strncmp(best_dev, "/dev/nvme", 9) || !strncmp(best_dev, "/dev/mmcblk0", 12) || !strncmp(best_dev, "/dev/loop", 9);
+}
+
 /* why a Synths folder can't take a plugin (.so), or NULL if it can */
 static const char *bad_target(const char *path, char *why, size_t n) {
     char loc[200], parent[200];
@@ -908,12 +928,13 @@ static void probe_device(device_t *d) {
         }
         free(x);
     }
-    /* internal storage first (One: /media/az01-internal, Force: /sdcard = /media/az01-internal-sd, Gen2: /nvme): a
+    /* internal storage first (One: /media/az01-internal, Force: /sdcard = /media/az01-internal-sd, Gen2: /nvme, One Gen2: /synths or /storage on
+     * eMMC, told by the mount's device): a
      * plugin on a USB stick or card disappears with it; any other good location only as a last resort */
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < d->nloc; i++) {
             int internal = !strncmp(d->loc[i], "/media/az01-internal", 20) || !strncmp(d->loc[i], "/sdcard/", 8)
-                            || !strncmp(d->loc[i], "/nvme/", 6);
+                            || !strncmp(d->loc[i], "/nvme/", 6) || internal_device(d->loc[i]);
             if (!(pass || internal) || !good_target(d->loc[i])) continue;
             char u[200];
             snprintf(u, sizeof u, "%s", d->loc[i]);
