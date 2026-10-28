@@ -8,7 +8,7 @@
 # Add one for your model (copy its MPC.settings layout from the device.txt the plugin writes) and send it with your PR.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
-MV="${MPC_VST:-$here/../mpc-vst-plugins}"
+MV="${MPC_VST:-$here/../..}"
 python3 "$MV/tools/gen_vst.py" "$here/vst/vst.json" --params-h >/dev/null
 MPC_VST="$MV" python3 "$here/tests/fixture.py"
 docker run --rm -e ONLY -v "$here":/p -v "$MV":/mv:ro -w /p gcc:12 bash -c '

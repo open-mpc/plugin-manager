@@ -5,7 +5,7 @@
 #   vst/build/skin/<folder>/Plugin Skins{,.dark,.light}/   each with a ".theme" file naming it
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-MPC_VST="${MPC_VST:-$here/../../mpc-vst-plugins}"
+MPC_VST="${MPC_VST:-$here/../../..}"
 arch="${1:-aarch64}"
 [ -x "$MPC_VST/tools/build_port.sh" ] || { echo "need an mpc-vst-plugins checkout (MPC_VST)" >&2; exit 1; }
 "$MPC_VST/tools/build_port.sh" "$here/vst.json" "$arch"

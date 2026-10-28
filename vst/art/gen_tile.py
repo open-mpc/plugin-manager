@@ -11,7 +11,7 @@ from fontTools.pens.transformPen import TransformPen
 
 # Titillium Web ships with mpc-vst-plugins (tools/html_art/fonts); point MPC_VST or TILE_FONTS elsewhere if needed
 FONTS = os.environ.get("TILE_FONTS") or os.path.join(
-    os.environ.get("MPC_VST", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "mpc-vst-plugins")),
+    os.environ.get("MPC_VST", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..")),
     "tools", "html_art", "fonts")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "tile.svg")
 

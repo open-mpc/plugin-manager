@@ -17,7 +17,7 @@ import urllib.request
 from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MPC_VST = os.environ.get("MPC_VST", os.path.join(HERE, "..", "..", "mpc-vst-plugins"))
+MPC_VST = os.environ.get("MPC_VST", os.path.join(HERE, "..", "..", ".."))
 OUT = os.path.join(HERE, "images", "shots")
 OUT_BIG = os.path.join(HERE, "images", "shots_detail")
 W, H = 136, 68

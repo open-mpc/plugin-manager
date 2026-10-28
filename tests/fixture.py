@@ -6,7 +6,7 @@ import hashlib, json, os, subprocess, sys, tempfile
 
 here = os.path.dirname(os.path.abspath(__file__))
 root = os.path.dirname(here)
-mv = os.environ.get("MPC_VST", os.path.join(root, "..", "mpc-vst-plugins"))
+mv = os.environ.get("MPC_VST", os.path.join(root, "..", ".."))
 out = os.path.join(root, "vst", "build", "tests")
 os.makedirs(out, exist_ok=True)
 ADDINS = [("alpha-addin", "Alpha addin", "0.1.0"), ("beta-addin", "Beta addin", "1.2.0"), ("gamma-addin", "Gamma addin", "0.3.0")]
