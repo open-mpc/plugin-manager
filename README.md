@@ -36,8 +36,9 @@ the project's development**: the catalog, its release rules and the official way
 **Install, update, remove**
 - **INSTALL**, **UPDATE** and **UPDATE ALL** queue changes; **REINSTALL** and **REMOVE** are in the card's ⋮ menu. Nothing changes until you press
   **APPLY**, which shows what will happen and where, then restarts MPC once.
-- Updates stay where the plugin already lives. New installs go to the first **usable** content location, internal storage first, and when more
-  than one is usable the restart prompt has a **CHANGE** button.
+- Updates stay where the plugin already lives. New installs go to the first **usable** content location, internal storage first. When more than one
+  is usable (the user drive and an SSD or card, say) the restart prompt shows where and has a **CHANGE** button; **the place you confirm is remembered**
+  as the default for new installs (it is forgotten for a session only if that drive is not there, and returns when it is).
 - Addins (the catalog's `addin` kind) are supported as well as plugins.
 
 **Safe by design**

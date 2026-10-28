@@ -79,6 +79,14 @@ sh tests/devices/two-targets.sh
 grep -qF "prompt: confirm=1 pick=1 |Install to: /sdcard/Synths  (1 of 2)|" /tmp/pick.out
 grep -qF "after CHANGE: confirm=1 pick=1 |Install to: /media/CARD/Synths  (2 of 2)|" /tmp/pick.out
 grep -qF -- "-t '"'"'/media/CARD/Synths'"'"'" /tmp/openmpc-pm/apply.sh
+# the confirmed place is remembered: a fresh start names it first; with that drive gone it falls back and keeps the preference
+grep -qx "/media/CARD/Synths" /media/az01-internal/.openmpcpm-target
+rm -rf /tmp/openmpc-pm; /tmp/drive_addins pickshow > /tmp/pickshow.out
+grep -qF "first prompt: confirm=1 pick=1 |Install to: /media/CARD/Synths  (2 of 2)|" /tmp/pickshow.out || { cat /tmp/pickshow.out; exit 1; }
+printf "x /sdcard ext4 rw,relatime 0 0\n" > /tmp/pm-mounts   # the card is gone
+rm -rf /tmp/openmpc-pm; /tmp/drive_addins pickshow > /tmp/pickgone.out
+grep -qF "/sdcard/Synths" /tmp/openmpc-pm/apply.sh && ! grep -qF "/media/CARD" /tmp/openmpc-pm/apply.sh || { cat /tmp/pickgone.out; exit 1; }
+grep -qx "/media/CARD/Synths" /media/az01-internal/.openmpcpm-target
 echo "pick OK"
 fi # pick
 if want theme; then

@@ -859,6 +859,32 @@ static const char *dest(const mgr_t *m) {
     return m->dev->nusable ? m->dev->usable[m->tsel % m->dev->nusable] : m->dev->target;
 }
 
+/* The install location confirmed last time (a restart prompt, usually after CHANGE) is the default for new installs from now on: saved in
+ * .openmpcpm-target beside the theme preference. It applies when that folder is a usable location now (a pulled SSD or card falls back to the
+ * normal default, and the file is kept for when it is back). An update always stays where the plugin already is. */
+static void target_init(mgr_t *m) {
+    char f[320], b[260] = "";
+    snprintf(f, sizeof f, "%s/.openmpcpm-target", m->dev->base);
+    FILE *fp = fopen(f, "r");
+    m->tsel = 0;
+    if (!fp) return;
+    if (fgets(b, sizeof b, fp)) b[strcspn(b, "\r\n")] = 0;
+    fclose(fp);
+    for (int k = 0; b[0] && k < m->dev->nusable; k++)
+        if (!strcmp(m->dev->usable[k], b)) m->tsel = k;
+}
+
+static void target_save(const mgr_t *m) {   /* tmp, then rename */
+    char f[320], t[330];
+    snprintf(f, sizeof f, "%s/.openmpcpm-target", m->dev->base);
+    snprintf(t, sizeof t, "%s.new", f);
+    FILE *fp = fopen(t, "w");
+    if (!fp) return;
+    fprintf(fp, "%s\n", dest(m));
+    fclose(fp);
+    rename(t, f);
+}
+
 /* Can this folder hold a symbolic link? FAT, exFAT and NTFS cannot (Gen2's internal /nvme is exFAT). Asked of a package that needs
  * links, not of a drive in general: most plugins ship none. */
 static int can_link(const char *dir) {
@@ -1409,6 +1435,7 @@ static void do_refresh(mgr_t *m) {
     probe_device(m->dev);
     l.n = add_local(m->dev, tmp, l.n);
     theme_init(m);
+    if (!m->confirm) target_init(m);   /* a pick still open on the prompt is kept */
     write_report(m->dev);
     scan_installed(m->dev, tmp, l.n);
     detect_orphans(m->dev);
@@ -2054,6 +2081,7 @@ static void mgr_set_param(void *inst, const char *key, const char *val) {
         } else if (v >= 0.5 && !strcmp(key, "confirm_cancel")) m->confirm = 0;   /* the prepared queue stays ready */
         else if (v >= 0.5 && !strcmp(key, "confirm_go")) {
             m->confirm = 0;
+            if (m->dev->nusable > 1) target_save(m);   /* remember the place the user confirmed */
             if (m->ready && !busy) { m->ready = 0; post(m, J_LAUNCH); }
         }
     } else if (v >= 0.5 && !strcmp(key, "search_btn")) {   /* the header's search button or search chip: type */

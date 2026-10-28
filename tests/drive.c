@@ -97,6 +97,13 @@ int main(int argc, char **argv) {
     press("target_next");
     for (int i = 0; i < 60 && strcmp(get("apply_state"), "3"); i++) sleep(1);
     printf("after CHANGE: confirm=%s pick=%s |%s|\n", get("confirm"), get("confirm_pick"), get("confirm_dest"));
+    press("confirm_go");   /* the confirmed place is remembered */
+    e->destroy(m); return 0;
+  }
+  if (argc > 1 && !strcmp(argv[1], "pickshow")) {   /* a fresh start: which place does the restart prompt name first? */
+    set("kind", "1"); press("r1_act"); press("apply");
+    for (int i = 0; i < 60 && strcmp(get("apply_state"), "3") && strcmp(get("apply_state"), "4"); i++) sleep(1);
+    press("apply"); printf("first prompt: confirm=%s pick=%s |%s|\n", get("confirm"), get("confirm_pick"), get("confirm_dest"));
     e->destroy(m); return 0;
   }
   if (argc > 1 && !strcmp(argv[1], "status")) { cards(); e->destroy(m); return 0; }   /* what the manager says on its own (the last apply) */
