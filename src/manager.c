@@ -747,7 +747,7 @@ static const char *bad_fs(const char *path, char *why, size_t n) {
 }
 
 /* Is the drive under `path` part of the device (eMMC, NVMe, a loop image of its storage) rather than something that can be pulled out (a USB stick,
- * the SD card: /dev/sd*, /dev/mmcblk1*)? The MPC One Gen2 has no /nvme: its internal Synths are on /synths (mmcblk0) or /storage (loop0). */
+ * the SD card: /dev/sd*, /dev/mmcblk1*)? The MPC One Gen2 has no /nvme: its internal Synths folder is /storage/Synths (loop0, exFAT; /synths is read-only), the SD card is /media/MPC. */
 static int internal_device(const char *path) {
 #ifdef FS_ANY
     FILE *f = fopen(!access("/tmp/pm-mounts", R_OK) ? "/tmp/pm-mounts" : "/proc/mounts", "r");
@@ -928,8 +928,8 @@ static void probe_device(device_t *d) {
         }
         free(x);
     }
-    /* internal storage first (One: /media/az01-internal, Force: /sdcard = /media/az01-internal-sd, Gen2: /nvme, One Gen2: /synths or /storage on
-     * eMMC, told by the mount's device): a
+    /* internal storage first (One: /media/az01-internal, Force: /sdcard = /media/az01-internal-sd, Gen2: /nvme, One Gen2: /storage on a loop
+     * image, told by the mount's device): a
      * plugin on a USB stick or card disappears with it; any other good location only as a last resort */
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < d->nloc; i++) {
