@@ -154,7 +154,9 @@ Design:
 
 **Cost found on the Live III (device, 2026-10-28):** every thumbnail button is a component on every row, and each skin load makes MPC write cache files to a RAM disk it never empties (NOTES, same date). With 159 ids x 5 rows one load cost 250 to 830 MB and filled the 3.9 GB volume after about ten loads (black patches in the header); with only the 39 ids that have an aarch64 zip a load adds about 14 MB. `vst/shots.py --gen2` bakes that lean set. **Decision 2026-10-28 (the owner's): one big skin for Gen1 and Gen2**, every catalog screenshot (162 ids, about 19 MB zipped, 3.4k components), because on the Force (Gen1) most plugins would otherwise show initials; the Force's cache RAM disk held 0 files with the manager open. The Live III cost is mitigated, not removed: the manager empties the image cache whenever it restarts MPC itself (`apply.sh`, nothing has the files open then) and warns at 85% full; a reboot is still the only other way to empty it. A filmstrip per row (PR #8's way) would cut it further; not needed yet.
 
-## 6c. Thumbnails that are newer than the build (loading images "from the network")
+## 6c. Thumbnails that are newer than the build
+
+**Done 2026-10-29 (offline; first real run pending):** a weekly check, `.github/workflows/plugin-manager-g2-thumbs.yml` running `vst/thumbs_check.sh`, regenerates the thumbnails from the live catalog, keeps every image already in the repo as it is (the encoder differs between machines) and, when there are new plugins, pushes a branch and opens a PR, or an issue with a compare link because this repo does not let Actions create pull requests. A person merges it and runs the release workflow. The proper fix (a thumbnail pack the catalog serves and the manager installs into its own skin at apply, with generic numbered slots in the layout) is designed above and not built. (loading images "from the network")
 
 A skin cannot fetch an image, and **MPC keeps skins in memory: re-inserting a plugin does not reload a changed skin, only an MPC
 restart does** (device, verified 2026-10-04, `mpc-vst-plugins` SKILL.md step 5). So a downloaded picture cannot appear while the

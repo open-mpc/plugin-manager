@@ -105,6 +105,10 @@ tools/plugin_manager_g2/tests/run.sh                      # the offline suite (a
 ONLY=safety tools/plugin_manager_g2/tests/run.sh          # one section: devices addins links pick theme safety arch
 ```
 
+**Thumbnails** are baked into the skin when a release is built, so a plugin added to the catalog later shows its initials until the next release. A weekly
+check (`.github/workflows/plugin-manager-g2-thumbs.yml`, `vst/thumbs_check.sh`) regenerates them from the live catalog and, when there are new ones,
+pushes a branch and opens a pull request (or an issue with a compare link) for review; it never releases anything.
+
 `DESIGN.md` has the design and the evidence behind it (what was seen on a device and what is only offline); `docs/NOTES.md` in the repo root has
 the dated device findings. Releases are built by `.github/workflows/plugin-manager-g2.yml`.
 
