@@ -63,7 +63,7 @@ Read: README, DEVELOPER_FAQ, CHANGELOG, file list (`src/main.cpp`, `backend.cpp`
 `startup/hotplug.cpp`, `startup/bootstrap.sh`, `tools/deploy.cpp`). Source files not read line by line yet.
 
 **What it is:** a standalone SDL2 application, not a plugin. It is launched from a USB stick or SD card (autorun on 3.9.1; a
-"helper" imported into MPC Documents plus Shift+Menu on 3.10 if the stick does not open by itself), stops MPC, takes the screen, and returns to MPC after five idle minutes.
+"helper" imported into MPC Documents plus Shift+Menu on 3.10), stops MPC, takes the screen, and returns to MPC after five idle minutes.
 Its own tests are on a Live II (Gen1) only; our Live III run of 2026-10-27 found 3.9.1 works and 3.10 does not open (docs/NOTES.md, mpc-vst-plugins).
 
 | Idea | Verdict for G2 | Why |
@@ -252,7 +252,7 @@ adapt `docs/UPSTREAM_TESTING.md`, plus: unlisted target shows the banner; a list
 
 - **Does `systemd-run` detach work on Gen2 3.10?** poloq's code has an "untested" cgroup fallback; only Gen1 was run. Device test needed before M3 is called done.
 - **Leaf name**: must the location end in `Synths`? Untested on a device.
-- **How is the manager itself installed on Gen2 3.10?** There is no autorun route; use `mpc-vst-plugins`' desktop app (its plugin manager stick opened on a stock 3.10 Live III, 2026-10-29; insert it first, then Shift+Menu, then the helper setup).
+- **How is the manager itself installed on Gen2 3.10?** There is no autorun route; use `mpc-vst-plugins`' desktop app (its plugin manager stick opened on a stock 3.10 Live III, 2026-10-29, through the helper imported once into MPC Documents).
 - **Licence of PR #7/#8 code**: ask before copying (NOTICE.md).
 - **Name**: "MPC" is Akai's mark; the project already uses it descriptively. Keep "OpenMPC" wording off logos and the plugin's skin art.
 - **exFAT and symlinks** (section 3): test a package that ships a symlink on `/nvme`.
