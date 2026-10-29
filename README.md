@@ -94,7 +94,7 @@ was accepted or refused, tools, glibc), `manager.log`, and `apply.log` (what the
 - Tested on an **MPC Live III (Gen2), MPC OS 3.10.0.49**, and a **Force (Gen1)**. The MPC One Gen2 layout (`/storage/Synths`) is covered by an offline test built from a user's
   own output, not yet run on a One.
 - The device needs `systemd-run`, `unzip`, `sha256sum` and libcurl (all present on a stock Live III).
-- MPC restarts on APPLY; MPC OS 3.10 has no autorun route, so the first install uses SSH or the installer app.
+- MPC restarts on APPLY; MPC OS 3.10 has no autorun route (the basic one-prompt stick needs 3.9.1 or earlier), so the first install uses SSH or the installer app's plugin manager stick, which works on 3.10.
 - A tap can reach the plugin twice on some screens; the manager ignores the same button twice within 250 ms.
 
 ## Building and testing
