@@ -62,6 +62,8 @@ static void prompt(void) {
 static void wait_for(const char *key, const char *val) {
   for (int i = 0; i < 120; i++) {
     if (!strcmp(get(key), val)) return;
+    /* never started (a device with a problem refuses APPLY): 2 min per such device in CI. run.sh still requires "ready" where problem is none */
+    if (!strcmp(key, "apply_state") && i >= 5 && !strcmp(get(key), "0")) { printf("  (apply_state=0 after 5 s: APPLY did not start)\n"); return; }
     if (!strcmp(key, "apply_state") && !strcmp(get(key), "4")) { printf("  (apply_state=4 while waiting for %s: the prepare step failed)\n", val); return; }   /* failed: no point waiting out the timeout */
     sleep(1);
   }

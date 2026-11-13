@@ -153,18 +153,25 @@ was accepted or refused, tools, glibc), `manager.log`, and `apply.log` (what the
 
 ## Building and testing
 
+Point `MPC_VST` at a checkout of [open-mpc/mpc-vst-plugins](https://github.com/open-mpc/mpc-vst-plugins) (wrapper and build tools).
+
 ```sh
-tools/plugin_manager_g2/vst/build_themes.sh aarch64        # plugin + light and dark skins into vst/build/
-tools/plugin_manager_g2/tests/run.sh                      # the offline suite (about 9 minutes; needs Docker and network)
-ONLY=safety tools/plugin_manager_g2/tests/run.sh          # one section: devices addins links pick theme safety arch
+MPC_VST=../mpc-vst-plugins vst/build_themes.sh aarch64      # plugin + light and dark skins into vst/build/ (armv7 for Gen1)
+MPC_VST=../mpc-vst-plugins tests/run.sh                     # the offline suite (about 10 minutes; needs Docker and network)
+ONLY=safety MPC_VST=../mpc-vst-plugins tests/run.sh         # one section: devices addins links vst2 pick theme safety arch web
+ONLY=devices:2/4 MPC_VST=../mpc-vst-plugins tests/run.sh    # a quarter of the fake devices, as CI runs them
 ```
 
+CI (`.github/workflows/plugin-manager.yml`) runs every section as its own job in parallel, with `devices` split in four, in about 4 minutes.
+A release is started from the Actions tab ("Run workflow", version, dry_run off): it reuses a passed run on the same commit, so start it
+after main's own run has finished. Then `tools/pm_release.py` in mpc-vst-plugins does the folder zips, the 3.9.1 stick and the pins.
+
 **Thumbnails** are baked into the skin when a release is built, so a plugin added to the catalog later shows its initials until the next release. A weekly
-check (`.github/workflows/plugin-manager-g2-thumbs.yml`, `vst/thumbs_check.sh`) regenerates them from the live catalog and, when there are new ones,
+check (`.github/workflows/thumbs.yml`, `vst/thumbs_check.sh`) regenerates them from the live catalog and, when there are new ones,
 pushes a branch and opens a pull request (or an issue with a compare link) for review; it never releases anything.
 
-`DESIGN.md` has the design and the evidence behind it (what was seen on a device and what is only offline); `docs/NOTES.md` in the repo root has
-the dated device findings. Releases are built by `.github/workflows/plugin-manager-g2.yml`.
+`DESIGN.md` has the design and the evidence behind it (what was seen on a device and what is only offline); `docs/NOTES.md` in mpc-vst-plugins has
+the dated device findings. Releases are built by `.github/workflows/plugin-manager.yml`.
 
 ## Credits
 

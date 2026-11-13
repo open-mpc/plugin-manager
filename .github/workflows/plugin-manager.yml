@@ -47,7 +47,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:   # one section per job, in parallel (tests/run.sh ONLY=<section>)
-        section: [devices, addins, links, vst2, pick, theme, safety, arch, web]
+        section: ['devices:1/4', 'devices:2/4', 'devices:3/4', 'devices:4/4', addins, links, vst2, pick, theme, safety, arch, web]   # devices split: 18 fake devices took 8 min in one job
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4

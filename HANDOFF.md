@@ -41,4 +41,4 @@ location confirmed on the restart prompt is remembered (device-tested on a Force
 - The MPC OS version cannot be read reliably on a device; the manager infers 2.x or 3.x from glibc (2.39 reads as 3.x).
 
 ## Tests
-`tools/plugin_manager_g2/tests/run.sh` (about 9 minutes, needs Docker and network); `ONLY=<section>` runs one section (devices, addins, links, pick, theme, safety, arch).
+`MPC_VST=../mpc-vst-plugins tests/run.sh` (about 10 minutes, needs Docker and network); `ONLY=<section>` runs one section (devices, addins, links, vst2, pick, theme, safety, arch, web; `devices:k/4` a quarter of the devices).
