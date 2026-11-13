@@ -1635,6 +1635,36 @@ static void probe_device(device_t *d) {
     }
     if (d->nusable) snprintf(d->target, sizeof d->target, "%s", d->usable[0]);
     if (d->target[0]) snprintf(d->via, sizeof d->via, "SynthContentLocations");
+    /* 3.10.1 with VST2 Support on loads plugins from "<drive>/VST2 Plugins" on any drive and draws the skin from the plugin's own folder,
+     * so MPC's Synths list does not decide where a plugin can go. With no usable Synths folder (all noexec, read-only, full: a user report,
+     * 2026-11-13) the internal drive's VST2 Plugins is the target: it must be read-write and kept, not exec (MPC remounts it for VST2). */
+    if (d->vst2 == 2 && !d->target[0]) {
+        const char *roots[16];
+        char lroot[8][200];
+        int nr = 0;
+        for (int i = 0; i < d->nloc && i < 8; i++) {
+            snprintf(lroot[i], sizeof lroot[i], "%s", d->loc[i]);
+            char *sl = strrchr(lroot[i], '/');
+            if (!sl || sl == lroot[i] || strcmp(sl, "/Synths")) continue;
+            *sl = 0;
+            int internal = !strncmp(lroot[i], "/media/az01-internal", 20) || !strncmp(lroot[i], "/sdcard", 7)
+                           || !strncmp(lroot[i], "/nvme", 5) || internal_device(lroot[i]);
+            if (internal) roots[nr++] = lroot[i];
+        }
+        roots[nr++] = "/nvme"; roots[nr++] = "/storage"; roots[nr++] = "/media/az01-internal"; roots[nr++] = "/sdcard";
+        for (int i = 0; i < nr && !d->target[0]; i++) {
+            char fs[32] = "", vd[220];
+            int rw = 0, ex = 0;
+            struct statvfs sv;
+            if (!is_dir(roots[i]) || !safe(roots[i]) || !mount_of(roots[i], fs, sizeof fs, &rw, &ex) || !rw) continue;
+            if (!strcmp(fs, "tmpfs") || !strcmp(fs, "ramfs") || !strcmp(fs, "devtmpfs") || !strcmp(fs, "squashfs") || !strcmp(fs, "erofs")
+                || !strcmp(fs, "iso9660") || !strcmp(fs, "cramfs")) continue;
+            if (statvfs(roots[i], &sv) || (unsigned long long)sv.f_bavail * sv.f_frsize < 64ull << 20) continue;
+            snprintf(vd, sizeof vd, "%s/VST2 Plugins", roots[i]);
+            snprintf(d->target, sizeof d->target, "%s", vd);
+            snprintf(d->via, sizeof d->via, "VST2 Plugins, no usable Synths folder");
+        }
+    }
     /* No fallback: MPC draws a plugin's skin only from a listed content location (docs/NOTES.md in mpc-vst-plugins, 2026-10-27),
      * so a folder that is not on the list would install a plugin that loads with no skin. With nothing usable listed the
      * manager says so (problem "No install location", every location and its reason in device.txt) and installs nothing. */

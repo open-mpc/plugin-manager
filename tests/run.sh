@@ -163,6 +163,21 @@ grep -qF "vst2 to move: 2" /tmp/openmpc-pm/device.txt || { grep "vst2 to move" /
 ARCH=aarch64 sh /tmp/openmpc-pm/vst2.sh --apply > /tmp/stick-move.out
 grep -qF "COPY  acme - VST - Sticky -> /media/STICK/VST2 Plugins/" /tmp/stick-move.out || { cat /tmp/stick-move.out; exit 1; }
 test -f "/media/STICK/VST2 Plugins/acme - VST - Sticky/plugin.json" && test -f "/media/STICK/VST2 Plugins/acme - VST - Sticky/sticky.so"
+# no usable Synths folder (the internal drive noexec, a user report 2026-11-13): 3.10.1 still installs into the internal VST2 Plugins
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
+sh tests/devices/gen2-3101-vst2.sh
+sed -i "s|^x /nvme exfat rw,relatime|x /nvme exfat rw,noexec,relatime|" /tmp/pm-mounts; grep -q "/nvme exfat rw,noexec" /tmp/pm-mounts
+/tmp/drive_addins links > /tmp/nosynths.out
+grep -qxF "install target: /nvme/VST2 Plugins  (from VST2 Plugins, no usable Synths folder)" /tmp/openmpc-pm/device.txt || { grep -E "^(install target|location|problem)" /tmp/openmpc-pm/device.txt; exit 1; }
+! grep -q "Installing is turned off" /tmp/nosynths.out
+grep -qF -- "-t '"'"'/nvme/VST2 Plugins'"'"'" /tmp/openmpc-pm/apply.sh
+# the same drive with VST2 Support off (3.10.1 before the switch, or 3.9.1): Synths still decides, nothing to install into
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
+sh tests/devices/gen2-3101-vst2.sh
+sed -i "s|^x /nvme exfat rw,relatime|x /nvme exfat rw,noexec,relatime|" /tmp/pm-mounts
+sed -i "s|VST2Support\" val=\"1\"|VST2Support\" val=\"0\"|" /data/Settings/MPC/MPC.settings
+/tmp/drive_addins links > /tmp/nosynths-off.out || true
+grep -qxF "install target: (none)" /tmp/openmpc-pm/device.txt || { grep -E "^(install target|vst2)" /tmp/openmpc-pm/device.txt; exit 1; }
 echo "vst2 OK"
 fi # vst2
 if want pick; then
