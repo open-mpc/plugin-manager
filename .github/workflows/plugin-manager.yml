@@ -1,0 +1,90 @@
+# The OpenMPC Plugin Manager VST: tests on every change; "Run workflow" builds the Gen1 (armv7) and Gen2 (aarch64) zips into a DRAFT
+# release (plugin-manager-g2-v<version>) with mpc-vst-plugins' reusable vst-release.yml, for a person to check on a device and publish
+# (then tools/pm_release.py in mpc-vst-plugins does the folder zips, the 3.9.1 stick and the pins). Start with dry_run: the zip comes as an artifact.
+# The wrapper, host test and build tools come from open-mpc/mpc-vst-plugins at TOOLS_REF (move it on with a PR, like any port).
+name: Plugin Manager
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, e.g. 1.2.0
+        required: true
+      dry_run:
+        description: Build and package only (the zip as a run artifact), no draft release
+        type: boolean
+        default: true
+permissions:
+  contents: read
+env:
+  TOOLS_REF: cef298d9ad036d06e3893ed45aa12063b2cd6471
+jobs:
+  # A release of a commit whose push run already passed the tests reuses that result instead of testing again.
+  tested:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      ok: ${{ steps.find.outputs.ok }}
+    steps:
+      - id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ok=false
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            n=$(gh api "repos/${{ github.repository }}/actions/workflows/plugin-manager.yml/runs?head_sha=${{ github.sha }}&status=success&event=push" --jq '.total_count' || echo 0)
+            [ "${n:-0}" -gt 0 ] && ok=true
+          fi
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"; echo "tests already passed on ${{ github.sha }}: $ok"
+  test:
+    needs: tested
+    if: ${{ needs.tested.outputs.ok != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:   # one section per job, in parallel (tests/run.sh ONLY=<section>)
+        section: [devices, addins, links, vst2, pick, theme, safety, arch, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: open-mpc/mpc-vst-plugins
+          ref: ${{ env.TOOLS_REF }}
+          path: .mpc-vst-plugins
+      - name: Offline tests, section ${{ matrix.section }} (host test under ASan; they read the live catalog)
+        env:
+          ONLY: ${{ matrix.section }}
+          MPC_VST: ${{ github.workspace }}/.mpc-vst-plugins
+        run: tests/run.sh
+  version:   # checked even when the tests are reused
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          v=$(sed -n 's/^#define PM_VERSION "\(.*\)"/\1/p' src/manager.c)
+          [ "$v" = "$VERSION" ] || { echo "::error::PM_VERSION is $v but the release version is $VERSION: bump PM_VERSION in src/manager.c"; exit 1; }
+  release:
+    needs: [tested, test, version]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && needs.version.result == 'success' && (needs.test.result == 'success' || (needs.test.result == 'skipped' && needs.tested.outputs.ok == 'true')) }}
+    permissions:
+      contents: write
+    uses: open-mpc/mpc-vst-plugins/.github/workflows/vst-release.yml@cef298d9ad036d06e3893ed45aa12063b2cd6471
+    with:
+      tag: plugin-manager-g2-v${{ inputs.version }}
+      version: ${{ inputs.version }}
+      tools_ref: cef298d9ad036d06e3893ed45aa12063b2cd6471
+      vst_dir: vst
+      build: vst/build_themes.sh all
+      about: Browse the OpenMPC catalog and install, update and remove plugins on the MPC itself, with rollback; for Gen1 and Gen2.
+      plugin_id: plugin-manager-g2
+      license: MIT
+      asset_name: Plugin-Manager-G2   # kept after the rename: the catalog's asset_pattern, the stick builder and installer 2.0.x match it
+      retire: OpenMPC - VST - Plugin Manager G2
+      dry_run: ${{ inputs.dry_run }}

@@ -1,5 +1,10 @@
 # OpenMPC Plugin Manager VST
 
+> **Repo.** This is the Plugin Manager's own repo since 2026-11 (it lived in `tools/plugin_manager_g2` of
+> [open-mpc/mpc-vst-plugins](https://github.com/open-mpc/mpc-vst-plugins), whose history is kept here). It builds with that repo's
+> wrapper and tools: point `MPC_VST` at a checkout of it (`MPC_VST=../mpc-vst-plugins tests/run.sh`, `vst/build_themes.sh aarch64`).
+> CI pins it with `TOOLS_REF` in `.github/workflows/plugin-manager.yml`. Releases up to 1.1.0 are in the old repo.
+
 > **Name.** The plugin is called the **OpenMPC Plugin Manager VST** (it used to be called "G2", which people took for a Gen2-only plugin: it runs on Gen1, Force and Gen2). Until its next release the name it shows on the device, its folder and its files still say "Plugin Manager G2" (`Plugin-Manager-G2-<version>-mpc-<armv7|aarch64>.zip`, catalog id `plugin-manager-g2`); those identifiers stay so installs and updates keep working.
 
 Browse the OpenMPC plugin catalog and **install, update and remove plugins on the MPC itself**, from a plugin that runs inside MPC with its

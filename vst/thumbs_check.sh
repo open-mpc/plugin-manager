@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# The scheduled thumbnail check (.github/workflows/plugin-manager-g2-thumbs.yml): the manager's skin has a thumbnail baked in for every catalog
+# The scheduled thumbnail check (.github/workflows/thumbs.yml): the manager's skin has a thumbnail baked in for every catalog
 # plugin that had a screenshot when it was built, so a plugin added later shows initials until a new release. This regenerates them from the
 # live catalog and, if there are NEW ones, pushes a branch and opens a PR for a person to review and release (or, when GitHub Actions may not
 # create pull requests, an issue with a compare link). Images already in the repo are kept exactly as they are.
 #   DRY=1 vst/thumbs_check.sh     stop before pushing anything
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-P=tools/plugin_manager_g2
+P=.   # the repo root is the Plugin Manager (it lived in tools/plugin_manager_g2 of open-mpc/mpc-vst-plugins until 2026-11)
 python3 "$P/vst/shots.py"
 # the encoder differs between machines: keep every image that is already tracked, so only a new plugin's files remain as changes
 git ls-files "$P/vst/images/shots" "$P/vst/images/shots_detail" | xargs -r git checkout --
@@ -27,4 +27,4 @@ body="The catalog gained plugins with screenshots since the last build: ${new:-t
 if gh pr create --base main --head "$branch" --title "$title" --body "$body" 2>/dev/null; then exit 0; fi
 gh issue create --title "$title" --body "$body
 
-Open a pull request: https://github.com/${GITHUB_REPOSITORY:-open-mpc/mpc-vst-plugins}/compare/main...$branch?expand=1"
+Open a pull request: https://github.com/${GITHUB_REPOSITORY:-open-mpc/plugin-manager}/compare/main...$branch?expand=1"
