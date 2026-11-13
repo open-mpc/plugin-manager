@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Offline tests in the gcc:12 Docker image (needs network: they read the live catalog and download one zip).
-#   ONLY=<section> tests/run.sh   one section (devices addins links vst2 pick theme safety arch web) in a minute or two; no ONLY: everything (about 9 minutes)
+#   ONLY=<section> tests/run.sh   one section (ONLY=devices:2/4: a quarter of the fake devices, as CI runs them) (devices addins links vst2 pick theme safety arch web) in a minute or two; no ONLY: everything (about 9 minutes)
 #   tests/run.sh            the wrapper host test, each fake device in tests/devices/, then the addin flow against
 #                           an offline fixture (tests/fixture.py: three addin packages and a file:// catalog)
 # A fake device is a shell script that builds the device's files inside the container: MPC.settings (the real format,
@@ -14,14 +14,18 @@ MPC_VST="$MV" python3 "$here/tests/fixture.py"
 docker run --rm -e ONLY -e TRACE -e DEV -v "$here":/p -v "$MV":/mv:ro -w /p gcc:12 bash -c '
 set -eo pipefail; [ -z "$TRACE" ] || set -x
 SAN="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1"
-want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }   # ONLY=safety: just that section (devices, addins, links, pick, theme, safety, arch, web)
+want() { [ -z "$ONLY" ] || [ "${ONLY%%:*}" = "$1" ]; }   # ONLY=devices:2/4 runs every 4th fake device from the 2nd (CI shards)   # ONLY=safety: just that section (devices, addins, links, pick, theme, safety, arch, web)
 export PM_TAPMS=40   # the double-tap window, short (FS_ANY builds only)
 export PM_GLIBC=2.39   # a Gen2 / MPC OS 3.x glibc: the container has 2.36, which reads as OS 2.x and refused the live catalog packages (a 120 s wait per device)
 gcc $SAN -std=gnu11 -w -Ivst/build src/manager.c /mv/tools/host_test.c /mv/wrapper/vst2_wrap.c -lpthread -ldl -lm -o /tmp/host_test
 if want devices; then
 (cd /tmp && ./host_test | tail -n 1)
 gcc $SAN -DFS_ANY=1 -std=gnu11 -w src/manager.c tests/drive.c -lpthread -ldl -o /tmp/drive
+SHARD=; case "$ONLY" in devices:*/*) SHARD="${ONLY#devices:}";; esac
+n=0
 for dev in tests/devices/${DEV:-*}.sh; do
+  n=$((n + 1))
+  [ -z "$SHARD" ] || [ $(( (n - 1) % ${SHARD#*/} + 1 )) = "${SHARD%/*}" ] || continue
   echo "== $dev"
   # each device starts from a clean filesystem
   rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
