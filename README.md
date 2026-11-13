@@ -13,6 +13,8 @@ models, MPC OS 3.x), with a safety net: if an install fails, the plugin folder a
 
 ![The manager's Discover tab on a Live III, light theme](docs/screenshots/manager-discover-light.png)
 
+> **Any plugin, however it was built.** The Plugin Manager is part of Open MPC, the delivery side: it installs, updates and removes catalog plugins on MPC OS 3.9.1 and 3.10.1+, including plugins built with Akai's MPC Plugin SDK. Building a plugin is the SDK's job (or the mpc-vst-plugins wrapper's).
+
 ## Built on poloq's work
 
 **This manager exists because of [poloq](https://github.com/poloq-instruments)'s
