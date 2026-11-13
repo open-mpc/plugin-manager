@@ -88,6 +88,9 @@ import copy
 so = copy.deepcopy(plugins[0])   # an entry made for another MPC (the catalog's "devices"): hidden when the model is known and not listed
 so.update({"id": "sample-only", "name": "Sample only addin", "devices": ["mpc-sample"]})
 plugins.append(so)
+mo = copy.deepcopy(plugins[0])   # an entry whose author supports only MPC OS 3.10.1+ (the catalog's "min_os"): hidden on older MPC OS
+mo.update({"id": "new-os-only", "name": "New OS only addin", "min_os": "3.10.1"})
+plugins.append(mo)
 json.dump({"schema": 1, "plugins": plugins}, open(os.path.join(out, "catalog.json"), "w"), indent=1)
 # patches.json: one patch whose script reports a stock device, one whose script does not match its checksum, one for another CPU
 stock = ("#!/bin/sh\nM=/tmp/fx-patch-marker\n"
