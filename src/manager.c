@@ -90,6 +90,7 @@ typedef struct {
     char id[48], name[48], author[32], kind[16], dist[16], latest[24], url[512], sha[72];
     char style[32], tags[96], channel[16], cpu[8], tested[48];   /* the card's badges and meta line */
     char summary[720];    /* the detail view's text */
+    char min_os[12];      /* the catalog's "min_os" ("3.10.1"): the author supports only that MPC OS and later (hidden on older unless installed) */
     char devices[96];     /* the catalog's "devices" ("|mpc-sample|"): empty = any device; else only these (hidden elsewhere unless installed) */
     char alltags[200];    /* every tag, as "|a|b|" (tag search, the detail view's tag buttons) */
     char date[12], cpu_pct[12], whatsnew[480];   /* the latest version's release date, CPU p99, What's new */
@@ -541,6 +542,7 @@ static const char *pkg_member(const char *k, const char *v, void *ud) {
         if (!strcmp(k, "distribution")) return jstr(v, x->dist, sizeof x->dist);
         if (!strcmp(k, "latest")) return x->url[0] ? NULL : jstr(v, x->latest, sizeof x->latest);   /* after "versions": the pick stands */
         if (!strcmp(k, "style")) return jstr(v, x->style, sizeof x->style);
+        if (!strcmp(k, "min_os")) return jstr(v, x->min_os, sizeof x->min_os);
         if (!strcmp(k, "summary")) return jstr(v, x->summary, sizeof x->summary);
     }
     if (!strcmp(k, "downloads") && *v >= '0' && *v <= '9') { x->downloads = atoi(v); return NULL; }
@@ -2729,10 +2731,12 @@ static int matches(const pkg_t *p, const char *q) {   /* the search: name, autho
     return has_text(p->name, q) || has_text(p->author, q) || has_text(p->alltags, q);
 }
 
-/* not offered on this MPC: the catalog's "devices" does not list this model (an unknown model hides nothing), or it is a beta and SETTINGS hides
- * betas. Something installed always shows. The screen and the web page both use this. */
+/* not offered on this MPC: the catalog's "devices" does not list this model (an unknown model hides nothing), its author supports only MPC OS
+ * 3.10.1+ ("min_os") and this MPC OS is older (no VST2 Support setting in MPC.settings), or it is a beta and SETTINGS hides betas. Something
+ * installed always shows. The screen and the web page both use this. */
 static int hidden_here(const mgr_t *m, const pkg_t *p) {
     if (installed(p)) return 0;
+    if (!strcmp(p->min_os, "3.10.1") && m->dev->vst2 == 0) return 1;
     if (p->devices[0] && m->dev->model_id[0]) {
         char tag[64];
         snprintf(tag, sizeof tag, "|%s|", m->dev->model_id);

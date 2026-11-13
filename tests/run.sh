@@ -436,6 +436,12 @@ grep -q "\"plugins\":\[{\"id\":" /tmp/web.out
 PM_MODEL="Akai Professional MPC Live III" /tmp/drive_addins web > /tmp/web-live3.out 2>&1 || true
 grep -q "\"id\":\"alpha-addin\"" /tmp/web-live3.out && ! grep -q "\"id\":\"sample-only\"" /tmp/web-live3.out || { echo "the web page must hide an entry made for another MPC"; exit 1; }
 grep -q "\"id\":\"sample-only\"" /tmp/web.out   # an unknown model hides nothing
+! grep -q "\"id\":\"new-os-only\"" /tmp/web.out || { echo "min_os 3.10.1 must be hidden on MPC OS before 3.10.1"; exit 1; }
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
+sh tests/devices/gen2-3101-vst2.sh && sh tests/addins.sh && /tmp/drive_addins web > /tmp/web-3101.out 2>&1 || true
+grep -q "\"id\":\"new-os-only\"" /tmp/web-3101.out || { echo "min_os 3.10.1 must be offered on 3.10.1"; exit 1; }
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
+sh tests/devices/mpc-one.sh && sh tests/addins.sh
 grep -q "<h1>Plugin Manager</h1>" /tmp/web.out
 grep -q "^screen status: On your phone or computer: http://[0-9.]*:8790$" /tmp/web.out   # the address on the screen
 grep -q "404 Not Found" /tmp/web.out
