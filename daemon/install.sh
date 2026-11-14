@@ -137,6 +137,14 @@ rm -f /etc/systemd/system/$UNIT.service /etc/systemd/system/multi-user.target.wa
 sync
 [ "$RO" = 1 ] && mount -o remount,ro / || true
 systemctl daemon-reload
+# Replace any running instance with the new binary: stop the unit, clear a failed unit, and reap any
+# straggler still holding :8790 that is not in the unit (^ anchors pgrep to the daemon's own argv[0],
+# so it never matches this shell). Otherwise an old instance keeps the port and the new binary never runs.
+systemctl stop $UNIT.service 2>/dev/null || true
+systemctl reset-failed $UNIT.service 2>/dev/null || true
+for p in $(pgrep -f "^$DEV_BIN" 2>/dev/null); do kill "$p" 2>/dev/null || true; done
+sleep 1
+for p in $(pgrep -f "^$DEV_BIN" 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
 systemctl start $UNIT.service
 echo "  binary:  $DEV_BIN"
 echo "  unit:    $IMG/$UNIT.service (+ boot wants symlink in the root image)"
@@ -173,6 +181,14 @@ echo "  binary:  $DEV_BIN"
 echo "  script:  $DEV_SCRIPT_DIR/ (ini=$(grep -c '^checksum=' "$DEV_SCRIPT_DIR/openmpc_pm_launch.ini") signed)"
 if [ "${RESTART:-0}" = 1 ]; then
     echo "  restarting MPC so the daemon starts now…"
+    # Stop the old daemon first: the boot launcher skips spawning when :8790 is already served, so
+    # without this the stale binary would keep serving after the restart. Reap any straggler too
+    # (^ anchors pgrep to the daemon's own argv[0], never this shell).
+    systemctl stop "$UNIT" 2>/dev/null || true
+    systemctl reset-failed "$UNIT" 2>/dev/null || true
+    for p in $(pgrep -f "^$DEV_BIN" 2>/dev/null); do kill "$p" 2>/dev/null || true; done
+    sleep 1
+    for p in $(pgrep -f "^$DEV_BIN" 2>/dev/null); do kill -9 "$p" 2>/dev/null || true; done
     rm -f /run/openmpc-pm-launch-done
     systemctl restart acvs
 else

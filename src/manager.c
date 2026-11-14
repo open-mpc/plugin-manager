@@ -74,7 +74,7 @@ typedef struct {
 #endif
 /* The version of this build, shown on the ABOUT page. The release workflow fails when its version input differs from this. */
 #ifndef PM_VERSION
-#define PM_VERSION "1.2.0"
+#define PM_VERSION "1.2.1"
 #endif
 #define WORK "/tmp/openmpc-pm"
 #define MAXPKG 256
@@ -1423,6 +1423,18 @@ static void cfg_save(const mgr_t *m) {   /* tmp, then rename */
 #define BG_UNIT       "openmpc-pm-daemon"
 #define BG_SCRIPT_SUB "MPC Documents/Devices/OpenMPC PM Server"
 
+/* Clear the way before (re)starting the daemon: stop its transient unit, reset a failed unit so the
+ * name is reusable, then reap any straggler still holding :8790 that is NOT in the unit (e.g. one from
+ * the launcher's double-fork fallback, or a stale instance) — otherwise the new binary never takes the
+ * port and the old one keeps serving. '^' anchors pgrep to the daemon's own argv[0], so it never matches
+ * the shell running this command, which names the same path. BusyBox has pgrep (but no pkill). */
+#define BG_STOP \
+    "systemctl stop " BG_UNIT " 2>/dev/null || true; " \
+    "systemctl reset-failed " BG_UNIT " 2>/dev/null || true; " \
+    "for p in $(pgrep -f '^" BG_BIN "' 2>/dev/null); do kill \"$p\" 2>/dev/null || true; done; " \
+    "sleep 1; " \
+    "for p in $(pgrep -f '^" BG_BIN "' 2>/dev/null); do kill -9 \"$p\" 2>/dev/null || true; done; "
+
 static void bg_src(const mgr_t *m, char *out, size_t n) {   /* this plugin's shipped payload dir, "" if none */
     out[0] = 0;
     if (!m->own[0]) return;
@@ -1465,30 +1477,30 @@ static int bg_install(mgr_t *m) {   /* 0 ok */
     char src[340], root[200];
     bg_src(m, src, sizeof src); bg_content_root(root, sizeof root);
     if (!src[0] || !root[0]) return -1;
-    char cmd[1800];
+    char cmd[2200];
     snprintf(cmd, sizeof cmd,
         "set -e; "
         "mkdir -p '%s'; cp '%s/openmpc-pm-daemon' '%s'; chmod 755 '%s'; "
         "mkdir -p '%s/%s'; "
         "cp '%s/openmpc_pm_launch.so' '%s/openmpc_pm_launch.lua' '%s/openmpc_pm_launch.ini' '%s/%s/'; "
         "rm -f /run/openmpc-pm-launch-done; "
-        "systemctl stop %s 2>/dev/null || true; "
+        BG_STOP
         "systemd-run --unit=%s --collect --quiet '%s' 2>/dev/null || true",
         BG_BIN_DIR, src, BG_BIN, BG_BIN,
         root, BG_SCRIPT_SUB,
         src, src, src, root, BG_SCRIPT_SUB,
-        BG_UNIT, BG_UNIT, BG_BIN);
+        BG_UNIT, BG_BIN);
     return sh(cmd);
 }
 
 static int bg_uninstall(mgr_t *m) {
     char root[200]; bg_content_root(root, sizeof root);
-    char cmd[900];
+    char cmd[1200];
     snprintf(cmd, sizeof cmd,
-        "systemctl stop %s 2>/dev/null; "
+        BG_STOP
         "rm -rf '%s/%s'; rm -f '%s'; rmdir '%s' 2>/dev/null; "
         "rm -f /run/openmpc-pm-launch-done",
-        BG_UNIT, root[0] ? root : "/nvme", BG_SCRIPT_SUB, BG_BIN, BG_BIN_DIR);
+        root[0] ? root : "/nvme", BG_SCRIPT_SUB, BG_BIN, BG_BIN_DIR);
     (void)m;
     return sh(cmd);
 }
