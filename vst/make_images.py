@@ -71,7 +71,7 @@ def main():
         + '<rect width="1280" height="60" fill="%s"/><rect y="60" width="1280" height="1" fill="%s"/>' % (PANEL, LINE)
         + grid + text(56, 39, "OPEN MPC - PLUGIN MANAGER", 24, INK, 700, spacing=3)
         + '<rect x="1036" y="15" width="1" height="30" fill="#2e3034"/>'
-        + text(1056, 26, "INTERNAL", 14, MUTED, 600, spacing=1)
+        + text(1056, 26, "INSTALL TO", 14, MUTED, 600, spacing=1)
         + '<rect x="1056" y="37" width="200" height="5" rx="2.5" fill="#2a2b2f"/>'
         + '<rect x="24" y="64" width="580" height="56" rx="8" fill="%s" stroke="%s"/>' % (PANEL, LINE)
         + '<rect y="556" width="1280" height="72" fill="%s"/><rect y="556" width="1280" height="1" fill="%s"/>' % (PANEL, LINE)
