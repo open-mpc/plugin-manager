@@ -4366,6 +4366,18 @@
    "name": "A-Z pill text",
    "type": "readout",
    "display": "string"
+  },
+  {
+   "key": "set_bgsrv_txt",
+   "name": "Setting: background server",
+   "type": "readout",
+   "display": "string"
+  },
+  {
+   "key": "set_bgsrv_btn",
+   "name": "Setting: background server button",
+   "type": "trigger",
+   "momentary": true
   }
  ]
 }

@@ -1,0 +1,3 @@
+# Built binaries (regenerate with: daemon/install.sh build). Sources (.c/.lua) are tracked.
+*.so
+openmpc-pm-daemon

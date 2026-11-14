@@ -74,7 +74,7 @@ typedef struct {
 #endif
 /* The version of this build, shown on the ABOUT page. The release workflow fails when its version input differs from this. */
 #ifndef PM_VERSION
-#define PM_VERSION "1.1.2"
+#define PM_VERSION "1.2.0"
 #endif
 #define WORK "/tmp/openmpc-pm"
 #define MAXPKG 256
@@ -162,6 +162,7 @@ typedef struct {
     patch_t pt[8]; int npt, ptpage, ptidx, ptact, ptconf, ptweb; long long ptconf_t;   /* PATCHES; ptact: 1 apply, 2 undo (the job); ptconf: 1 + index*2 + undo of the row waiting for its second tap; ptweb: the same code for a patch the web page asked for, kept until the screen's tap (or CANCEL on the page) */
        /* PATCHES: the list (loaded on each refresh), the page shown (3 per page), the one being checked */
     int show_beta, web_pref;        /* SETTINGS (saved in <base>/.openmpcpm-settings): list beta plugins in Discover, serve the web page */
+    int bg_on, bg_run, bg_avail;    /* SETTINGS: the always-on background server — installed (device script + binary present); its daemon running; and whether this build ships the payload (aarch64/Gen2) */
     char regq[4][200]; int nregq;   /* LOCATIONS: drives queued for REGISTER (a Synths folder to add to MPC.settings at APPLY) */
     locrow_t locs[16]; int nlocs, locpage;   /* LOCATIONS rows (built by the worker on each refresh), the page shown (4 per page) */
 } mgr_t;
@@ -1410,6 +1411,87 @@ static void cfg_save(const mgr_t *m) {   /* tmp, then rename */
     fclose(fp);
     rename(t, f);
 }
+
+/* SETTINGS: the always-on background server (Gen2 / MPC OS 3.10.x). Enabling it installs a SIGNED
+ * MPC Lua device script (shipped in this plugin's own folder under bgserver/) that MPC runs at every
+ * start to launch the daemon, plus the daemon binary, and starts the daemon immediately via
+ * systemd-run (its own transient cgroup, so a later acvs restart does not kill it). Gen2 only: the
+ * payload is aarch64, shipped only in the aarch64 build. Self-contained — no Addin Restore, nothing
+ * LD_PRELOADed into MPC. See daemon/README.md. */
+#define BG_BIN_DIR    "/data/openmpc-pm"
+#define BG_BIN        BG_BIN_DIR "/openmpc-pm-daemon"
+#define BG_UNIT       "openmpc-pm-daemon"
+#define BG_SCRIPT_SUB "MPC Documents/Devices/OpenMPC PM Server"
+
+static void bg_src(const mgr_t *m, char *out, size_t n) {   /* this plugin's shipped payload dir, "" if none */
+    out[0] = 0;
+    if (!m->own[0]) return;
+    char d[320];
+    snprintf(d, sizeof d, "%s/bgserver", m->own);
+    if (is_dir(d)) snprintf(out, n, "%s", d);
+}
+
+static void bg_content_root(char *out, size_t n) {   /* content drive holding "MPC Documents/Devices"; "" if none usable */
+    static const char *roots[] = {"/nvme", "/sdcard", "/data/UserData"};
+    out[0] = 0;
+    for (int i = 0; i < 3; i++) {
+        char d[256];
+        snprintf(d, sizeof d, "%s/MPC Documents/Devices", roots[i]);
+        if (is_dir(d)) { snprintf(out, n, "%s", roots[i]); return; }
+    }
+    if (is_dir("/nvme")) snprintf(out, n, "/nvme");   /* exists but Devices not made yet */
+}
+
+static int bg_is_installed(void) {
+    char root[200]; bg_content_root(root, sizeof root);
+    if (!root[0]) return 0;
+    char p[360];
+    snprintf(p, sizeof p, "%s/%s/openmpc_pm_launch.so", root, BG_SCRIPT_SUB);
+    return access(p, F_OK) == 0 && access(BG_BIN, F_OK) == 0;
+}
+
+static int bg_is_running(void) {   /* the daemon's transient unit is active */
+    return sh("systemctl is-active --quiet " BG_UNIT) == 0;
+}
+
+static void bg_refresh(mgr_t *m) {   /* update the cached state shown in SETTINGS */
+    char src[340]; bg_src(m, src, sizeof src);
+    m->bg_avail = src[0] != 0;
+    m->bg_on = bg_is_installed();
+    m->bg_run = m->bg_on && bg_is_running();
+}
+
+static int bg_install(mgr_t *m) {   /* 0 ok */
+    char src[340], root[200];
+    bg_src(m, src, sizeof src); bg_content_root(root, sizeof root);
+    if (!src[0] || !root[0]) return -1;
+    char cmd[1800];
+    snprintf(cmd, sizeof cmd,
+        "set -e; "
+        "mkdir -p '%s'; cp '%s/openmpc-pm-daemon' '%s'; chmod 755 '%s'; "
+        "mkdir -p '%s/%s'; "
+        "cp '%s/openmpc_pm_launch.so' '%s/openmpc_pm_launch.lua' '%s/openmpc_pm_launch.ini' '%s/%s/'; "
+        "rm -f /run/openmpc-pm-launch-done; "
+        "systemctl stop %s 2>/dev/null || true; "
+        "systemd-run --unit=%s --collect --quiet '%s' 2>/dev/null || true",
+        BG_BIN_DIR, src, BG_BIN, BG_BIN,
+        root, BG_SCRIPT_SUB,
+        src, src, src, root, BG_SCRIPT_SUB,
+        BG_UNIT, BG_UNIT, BG_BIN);
+    return sh(cmd);
+}
+
+static int bg_uninstall(mgr_t *m) {
+    char root[200]; bg_content_root(root, sizeof root);
+    char cmd[900];
+    snprintf(cmd, sizeof cmd,
+        "systemctl stop %s 2>/dev/null; "
+        "rm -rf '%s/%s'; rm -f '%s'; rmdir '%s' 2>/dev/null; "
+        "rm -f /run/openmpc-pm-launch-done",
+        BG_UNIT, root[0] ? root : "/nvme", BG_SCRIPT_SUB, BG_BIN, BG_BIN_DIR);
+    (void)m;
+    return sh(cmd);
+}
 /* where the settings live before the first device probe (the web page starts with the plugin): the same two folders probe_device() looks in */
 static void cfg_base_guess(char *out, size_t n) {
     static const char *dirs[] = {"/media/az01-internal/Settings", "/data/Settings"};
@@ -2284,6 +2366,7 @@ static void do_refresh(mgr_t *m) {
     if (retire_old_self(m) + repair_vst2_json(m)) probe_device(m->dev);   /* the old folder's entry is gone; repaired folders are listed */
     m->show_beta = cfg_get(m->dev->base, "beta", 1);
     m->web_pref = cfg_get(m->dev->base, "web", 1);
+    bg_refresh(m);   /* SETTINGS: the always-on background server's installed/running state */
     if (!m->confirm) target_init(m);   /* a pick still open on the prompt is kept */
     write_report(m->dev);
     loc_build(m);
@@ -3204,6 +3287,17 @@ static void mgr_set_param(void *inst, const char *key, const char *val) {
     } else if (!strcmp(key, "set_web_btn")) {   /* SETTINGS: the web page, from the next MPC start */
         m->web_pref = !m->web_pref;
         cfg_save(m);
+    } else if (!strcmp(key, "set_bgsrv_btn")) {   /* SETTINGS: install/remove the always-on background server (Gen2) */
+        if (!m->bg_avail)
+            say_locked(m, ERR, "The background server needs a Gen2 (64-bit) MPC; this build has no payload");
+        else if (m->bg_on) {
+            if (bg_uninstall(m) == 0) say_locked(m, OK, "Background server removed. The web page is served only while this plugin is loaded.");
+            else say_locked(m, ERR, "Could not remove the background server");
+        } else {
+            if (bg_install(m) == 0) say_locked(m, OK, "Background server installed and started: it now serves the web page at boot, with or without this plugin loaded.");
+            else say_locked(m, ERR, "Could not install the background server (is this a Gen2 running MPC OS 3.10.x?)");
+        }
+        bg_refresh(m);
     } else if (!strncmp(key, "pat", 3) && key[3] >= '1' && key[3] <= '3' && !strcmp(key + 4, "_chk") && !m->busy && !m->job) {   /* PATCHES: CHECK */
         int pi = m->ptpage * 3 + key[3] - '1';
         if (pi < m->npt && pt_arch_ok(m, &m->pt[pi])) {
@@ -3383,6 +3477,11 @@ static int mgr_get_param(void *inst, const char *key, char *b, int n) {
         snprintf(b, n, "%s%s", u, m->clearcache ? "  \xc2\xb7  clears on APPLY" : cp >= 85 ? "  \xc2\xb7  FULL" : "");
     }
     else if (!strcmp(key, "set_web_txt")) snprintf(b, n, "%s%s", m->web_pref ? "ON" : "OFF", m->web_pref != m->web_on ? "  \xc2\xb7  restart" : "");
+    else if (!strcmp(key, "set_bgsrv_txt")) {
+        if (!m->bg_avail) snprintf(b, n, "Gen2 only");
+        else if (!m->bg_on) snprintf(b, n, "OFF");
+        else snprintf(b, n, "ON%s", m->bg_run ? "  \xc2\xb7  running" : "  \xc2\xb7  starts at boot");
+    }
     else if (!strcmp(key, "loc_pages")) snprintf(b, n, "%d", m->nlocs > 4);
     else if (!strcmp(key, "loc_page")) snprintf(b, n, "%d / %d", m->locpage + 1, m->nlocs ? (m->nlocs + 3) / 4 : 1);
     else if (!strcmp(key, "loc_foot")) {
