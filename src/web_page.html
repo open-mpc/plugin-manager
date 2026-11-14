@@ -6,6 +6,7 @@
 body { font:15px/1.5 system-ui,sans-serif; margin:0 16px 90px; background:var(--bg); color:var(--fg); }
 .w { max-width:1180px; margin:auto; }
 h1 { font:700 30px system-ui; text-transform:uppercase; margin:22px 0 4px; }
+.hd { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
 #st { color:var(--m); margin:0 0 12px; } #st.e { color:var(--a); }
 .tabs { display:flex; gap:6px; margin:8px 0; } .tabs button[aria-pressed=true] { background:var(--fg); color:#fff; }
 input[type=search] { font:15px system-ui; padding:9px 11px; border:1px solid var(--l); border-radius:6px; width:100%; box-sizing:border-box; background:var(--p); }
@@ -47,7 +48,7 @@ button.p { background:var(--a); border-color:var(--a); color:#fff; } button.q { 
 .pg { height:6px; background:var(--l); border-radius:3px; overflow:hidden; margin:4px 0 0; } .pg i { display:block; height:100%; background:var(--a); }
 </style>
 <div class="w">
-  <h1>Plugin Manager</h1>
+  <div class="hd"><h1>Plugin Manager</h1><button id="sync" onclick="sync()" title="Re-check the catalog for new and updated plugins">Sync</button></div>
   <p id="st">Loading…</p><div id="pg"></div>
   <div class="top"><span id="to"></span></div>
   <div id="mv"></div>
@@ -68,18 +69,33 @@ const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'
 const H = {'X-PM': '1'};   // the server refuses changes without it (another web site cannot send it)
 let CAT = {};   // id -> its catalog entry (the page reads the catalog itself: the MPC does not keep pictures, badges or notes)
 const CATS = ['https://open-mpc.github.io/catalog.json', 'https://sd88me.github.io/mpc-vst-plugins/catalog.json'];
-(async () => {
+async function loadCat() {   // the browser's own copy (pictures, badges, notes, styles); server-side list comes from /api/state
   for (const u of CATS) {
     try {
-      const c = await (await fetch(u)).json();
+      const c = await (await fetch(u, {cache: 'no-store'})).json();
+      CAT = {};
       for (const p of (c.plugins || c)) CAT[p.id] = p;
       const st = [...new Set(Object.values(CAT).map(x => x.style).filter(Boolean))].sort();
       $('style').innerHTML = '<option value="">All styles</option>' + st.map(x => `<option>${esc(x)}</option>`).join('');
       load.last = ''; if (S) draw();
-      return;
+      return true;
     } catch (e) {}
   }
-})();
+  return false;
+}
+loadCat();
+
+// Sync: the catalog is read once when the manager starts (worker's first refresh). As a background server that is at boot,
+// so a plugin released since boot is not seen until this. Re-reads both copies: the browser's and the device's.
+async function sync() {
+  const b = $('sync'); b.disabled = true; b.textContent = 'Syncing…';
+  try {
+    await loadCat();                                              // browser copy: new entries, pictures, notes
+    await fetch('/api/refresh', {method: 'POST', headers: H});    // device re-fetches catalog.json; the poll loop shows the result
+    load.last = ''; await load();
+  } catch (e) {}
+  b.disabled = false; b.textContent = 'Sync';
+}
 
 async function api(p) {
   const r = await fetch(p, {method: 'POST', headers: H});
