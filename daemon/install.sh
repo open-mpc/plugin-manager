@@ -22,7 +22,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 DS="$HERE/device-script"                                   # openmpc_pm_launch.{c,so,lua,ini}
-BIN_LOCAL="$REPO/vst/build/daemon/openmpc-pm-daemon"       # aarch64 daemon (from build)
+BIN_LOCAL="$REPO/vst/build/daemon/openmpc-pm-daemon"             # aarch64 daemon (Gen2)
+BIN_LOCAL_ARMV7="$REPO/vst/build/daemon/openmpc-pm-daemon-armv7"  # armv7 daemon (Gen1/Force)
 
 # Signing (DEV ONLY). The salt is read from a 3.10.0.49 MPC binary and is unchanged in
 # 3.10.1.8; only the resulting checksum is shipped, never the salt.
@@ -84,13 +85,73 @@ preflight_install() {
 
 cmd_install() {
     local ip="$1"; need_ip "$ip"; shift || true
+    local arch
+    arch=$($SSH "root@$ip" 'uname -m') || die "cannot ssh root@$ip"
+    case "$arch" in
+        aarch64) install_gen2  "$ip" "$@" ;;   # Gen2: signed MPC device script + systemd-run
+        armv7l|armv7|arm) install_force "$ip" "$@" ;;   # Gen1/Force: plain systemd service (writable /etc)
+        *) die "unsupported arch: $arch" ;;
+    esac
+}
+
+# Gen1/Force (armv7, MPC OS 3.9.x): the rootfs has a writable /etc and systemd, so the daemon
+# runs as a normal systemd service — no MPC device script, no signing, no cgroup tricks. systemd
+# starts it at boot and restarts it on failure, independent of MPC.
+install_force() {
+    local ip="$1"; need_ip "$ip"; shift || true
+    local restart=0; for a in "$@"; do [ "$a" = --restart ] && restart=1; done
+    [ -x "$BIN_LOCAL_ARMV7" ] || die "armv7 daemon missing — run: vst/build_daemon.sh armv7"
+    info "Installing on Force ($ip) as a systemd service…"
+    $SSH "root@$ip" 'rm -rf /tmp/openmpc-pm-stage && mkdir -p /tmp/openmpc-pm-stage'
+    $SCP "$BIN_LOCAL_ARMV7" "root@$ip:/tmp/openmpc-pm-stage/openmpc-pm-daemon" >/dev/null
+    $SSH "root@$ip" "DEV_BIN_DIR='$DEV_BIN_DIR' DEV_BIN='$DEV_BIN' UNIT='$UNIT' RESTART='$restart' sh -s" <<'REMOTE'
+set -eu
+mkdir -p "$DEV_BIN_DIR"
+cp /tmp/openmpc-pm-stage/openmpc-pm-daemon "$DEV_BIN"; chmod 755 "$DEV_BIN"; rm -rf /tmp/openmpc-pm-stage
+# The unit and its boot (wants) symlink go into the ROOT IMAGE (/usr/lib/systemd/system), not /etc:
+# /etc here is an overlay (upperdir on /data) that systemd does not see when it computes the boot
+# transaction, so a unit enabled in /etc never starts at boot (acvs works only because its symlink
+# is in the baked image). / is plain ro ext4 (not verity), so remount it rw to write, then restore.
+RO=0; case ",$(findmnt -rn -M / -o OPTIONS)," in *,ro,*) RO=1; mount -o remount,rw / ;; esac
+IMG=/usr/lib/systemd/system
+mkdir -p "$IMG/multi-user.target.wants"
+cat > "$IMG/$UNIT.service" <<UNIT
+[Unit]
+Description=OpenMPC Plugin Manager background server (LAN web UI on :8790)
+# No network-online.target dependency (inactive on this device; would drop the start job). The
+# daemon tolerates late networking: web.c re-reads the LAN IP every few seconds.
+After=data.mount
+[Service]
+Type=simple
+ExecStart=$DEV_BIN
+Restart=always
+RestartSec=5
+Nice=10
+IOSchedulingClass=idle
+[Install]
+WantedBy=multi-user.target
+UNIT
+ln -sf ../$UNIT.service "$IMG/multi-user.target.wants/$UNIT.service"
+# drop any stale /etc-overlay enablement from an earlier attempt
+rm -f /etc/systemd/system/$UNIT.service /etc/systemd/system/multi-user.target.wants/$UNIT.service
+sync
+[ "$RO" = 1 ] && mount -o remount,ro / || true
+systemctl daemon-reload
+systemctl start $UNIT.service
+echo "  binary:  $DEV_BIN"
+echo "  unit:    $IMG/$UNIT.service (+ boot wants symlink in the root image)"
+echo "  active:  $(systemctl is-active $UNIT 2>/dev/null)"
+REMOTE
+    info "Installed on Force."
+    sleep 3; cmd_verify "$ip"
+}
+
+install_gen2() {
+    local ip="$1"; need_ip "$ip"; shift || true
     local restart=0
     for a in "$@"; do [ "$a" = --restart ] && restart=1; done
     preflight_install
-    # sanity: aarch64 + 3.10.x
-    local arch ver
-    arch=$($SSH "root@$ip" 'uname -m') || die "cannot ssh root@$ip"
-    [ "$arch" = aarch64 ] || die "device is $arch, not aarch64 (Gen2 only)"
+    local ver
     ver=$($SSH "root@$ip" 'strings -n4 /usr/bin/MPC 2>/dev/null | grep -oE "3\.1[0-9]\.[0-9]+(\.[0-9]+)?" | sort -uV | tail -1' || true)
     case "$ver" in 3.10.*) : ;; *) info "WARN: MPC version reads '$ver' (expected 3.10.x); continuing" ;; esac
 
@@ -129,10 +190,15 @@ set -u
 systemctl stop "$UNIT" 2>/dev/null || true
 kill $(pgrep -f "^$DEV_BIN") 2>/dev/null || true
 rm -f /run/openmpc-pm-launch-done /tmp/openmpc-pm-launch.log
-rm -rf "$DEV_SCRIPT_DIR"
+# Gen1/Force systemd unit lives in the root image (+ /etc overlay from older attempts)
+RO=0; case ",$(findmnt -rn -M / -o OPTIONS 2>/dev/null)," in *,ro,*) RO=1; mount -o remount,rw / 2>/dev/null || true ;; esac
+rm -f /usr/lib/systemd/system/"$UNIT".service /usr/lib/systemd/system/multi-user.target.wants/"$UNIT".service 2>/dev/null || true
+rm -f /etc/systemd/system/"$UNIT".service /etc/systemd/system/multi-user.target.wants/"$UNIT".service 2>/dev/null || true
+sync; [ "$RO" = 1 ] && mount -o remount,ro / 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+rm -rf "$DEV_SCRIPT_DIR"                                         # Gen2 device script
 rm -f "$DEV_BIN"; rmdir "$DEV_BIN_DIR" 2>/dev/null || true
-echo "removed device script, daemon unit and binary."
-echo "note: a running MPC keeps the current daemon until the next restart; 'systemctl stop $UNIT' was issued."
+echo "removed daemon (systemd unit and/or device script) and binary."
 REMOTE
     info "Uninstalled from $ip."
 }
