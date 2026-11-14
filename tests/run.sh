@@ -127,6 +127,15 @@ grep -qF "menu: open=1 hl=1 |Internal  ·  " /tmp/drives.out && grep -qF "|STICK
 grep -qF "after pick: open=0 readout: |STICK" /tmp/drives.out
 grep -qF "prompt: |Install to: /media/STICK/VST2 Plugins  (2 of 2)|" /tmp/drives.out || { cat /tmp/drives.out; exit 1; }
 grep -qxF "/media/STICK/VST2 Plugins" /data/.openmpcpm-target
+# a removal keeps the user files (ROMs) in the plugin folder: that leftover must not pull a new install off the picked drive (Key 37 G2,
+# 2026-11-14: the prompt said the SD card, the plugin went to the internal drive); a folder with the .so is a real update and stays put
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
+sh tests/devices/gen2-3101-vst2.sh; mkdir -p "/nvme/VST2 Plugins/acme - VST - Linky/roms" "/media/STICK/VST2 Plugins"
+/tmp/drive_addins drives > /tmp/drives-kept.out
+grep -qF "/media/STICK/VST2 Plugins/acme - VST - Linky" /tmp/openmpc-pm/apply.sh || { echo "FAIL a kept user-files folder took the install"; grep install /tmp/openmpc-pm/apply.sh; exit 1; }
+echo so > "/nvme/VST2 Plugins/acme - VST - Linky/linky.so"
+/tmp/drive_addins drives > /tmp/drives-upd.out
+grep -qF "/nvme/VST2 Plugins/acme - VST - Linky" /tmp/openmpc-pm/apply.sh || { echo "FAIL an update left its drive"; grep install /tmp/openmpc-pm/apply.sh; exit 1; }
 # renamed in 1.1.0 ("Plugin Manager G2" -> "Plugin Manager"): this copy, running from the new folder, removes an old copy of itself that
 # was not retired by install.sh (a hand copy), but never a folder of that name that is someone else'"'"'s; Move doesn'"'"'t copy the old one back
 rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
