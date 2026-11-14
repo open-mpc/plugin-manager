@@ -2566,7 +2566,14 @@ static void prepare(mgr_t *m, pkg_t *q) {
                 const char *bn = strrchr(f0, '/') ? strrchr(f0, '/') + 1 : f0;
                 for (int k = 0; bn[0] && k < m->dev->nvdrv; k++) {
                     snprintf(fd, sizeof fd, "%s/%s", m->dev->vdrv[k], bn);
-                    if (is_dir(fd)) { snprintf(target, sizeof target, "%s", m->dev->vdrv[k]); break; }
+                    /* only a folder with the plugin in it (a .so): a removal keeps the user's files (ROMs) in the folder, and that
+                     * must not pull a new install away from the drive the user picked (Key 37 G2, 2026-11-14) */
+                    DIR *pd = is_dir(fd) ? opendir(fd) : NULL;
+                    struct dirent *pe;
+                    int so = 0;
+                    while (pd && !so && (pe = readdir(pd))) { size_t l = strlen(pe->d_name); so = l > 3 && !strcmp(pe->d_name + l - 3, ".so"); }
+                    if (pd) closedir(pd);
+                    if (so) { snprintf(target, sizeof target, "%s", m->dev->vdrv[k]); break; }
                 }
             }
             const char *synths = target;
