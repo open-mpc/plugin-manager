@@ -57,7 +57,9 @@ the project's development**: the catalog, its release rules and the official way
 - **Web page (1.0):** while it is on a track, the manager serves `http://<mpc address>:8790/` on the local network (the status
   line shows the address when nothing is queued). The page is the catalog as cards (screenshot, badges, downloads, details; read
   by the browser from the catalog site) with Discover / Installed / Updates, type sections, style filter, sort and search, and
-  drives the same queue as the screen: Install, Update, Remove, Move, the INSTALL TO drive, download progress and APPLY. **Your
+  drives the same queue as the screen: Install, Update, Remove, Move, the INSTALL TO drive, download progress and APPLY. A **Sync**
+  button in the page header re-checks the catalog on demand (the manager reads it when it starts; Sync re-reads it without a restart,
+  which matters most for the always-on background server below). **Your
   files** uploads ROMs: each file is checked in the browser against the plugin's `user_files` rules and written only into one of
   that plugin's `user_files` folders (under the rule's `save_as` name). MPC creates the plugin more than once; one instance holds
   the port, another takes over when it closes. No password: changes need the page's own `X-PM` header and no foreign `Origin`,
@@ -76,6 +78,12 @@ the project's development**: the catalog, its release rules and the official way
   (a RAM disk) is nearly full, because a full cache makes parts of any skin draw black.
 
 **Extras**
+- **Always-on background server (1.2.0, opt-in, off by default):** normally the web page is served only while the manager is on a track.
+  Turn **Background Server** on in SETTINGS and the same web UI (`http://<mpc address>:8790/`) runs whenever the device is powered on — no
+  track, no plugin loaded — so you can browse and install from a phone or laptop any time. It reuses the plugin's own code as a small daemon
+  started at boot: on Gen2 (verity root) through a signed MPC device script relaunched outside MPC's cgroup so it survives the boot restart; on
+  Gen1/Force through a plain systemd service. Turn it off in SETTINGS to remove the daemon and the boot hook. Nothing is installed unless you ask.
+  Use the page's **Sync** button to pick up plugins released since the device booted. Source: `src/daemon.c`, `daemon/`.
 - **Light and dark theme** (the THEME pill; applied at the next restart, because MPC keeps skins in memory). Light is the default.
 - **Local zips:** put a package zip in `local-plugins/` next to a content location's parent (for example `/nvme/local-plugins/`) and it appears as a
   card marked *by local zip*, with its own SHA-256 shown. Nothing vouches for it, so the usual checks still apply. Works with no network (0.2.3).
