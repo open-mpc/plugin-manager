@@ -74,7 +74,7 @@ typedef struct {
 #endif
 /* The version of this build, shown on the ABOUT page. The release workflow fails when its version input differs from this. */
 #ifndef PM_VERSION
-#define PM_VERSION "1.3.4"
+#define PM_VERSION "1.3.5"
 #endif
 #define WORK "/tmp/openmpc-pm"
 #define MAXPKG 1024   /* cards kept: the catalog (272 plugins on 2026-11-17), then local zips and unregistered folders; what does not fit is logged */
@@ -2984,7 +2984,7 @@ static void prepare(mgr_t *m, pkg_t *q) {
 }
 
 static void do_prepare(mgr_t *m) {
-    pkg_t *q = calloc(MAXPKG, sizeof *q);   /* ~256 KB: kept off MPC's small thread stacks */
+    pkg_t *q = calloc(MAXPKG, sizeof *q);   /* ~1 MB: kept off MPC's small thread stacks */
     if (q) prepare(m, q);
     free(q);
 }
