@@ -9,8 +9,8 @@ It reuses the plugin code verbatim: `src/daemon.c` is `main()` + signal handling
 headers). `web.c`'s bind-retry means the daemon and a loaded VST never fight over the port.
 
 ## Scope
-**Gen2 / MPC OS 3.10.x only.** On 3.10.1 a newly installed plugin folder is picked up on the
-next MPC restart with no `MPC.settings` edit, which the manager relies on. Not for Gen1/armv7.
+**Gen2 / MPC OS 3.10.x (device script), and Gen1 / 3.9.x (systemd unit in the root image; the plugin writes it).** On 3.10.1 a newly installed plugin folder is picked up on the
+next MPC restart with no `MPC.settings` edit, which the manager relies on.
 
 ## How it persists on Gen2 (the important part)
 Gen2 has a **read-only verity rootfs** — `/` and `/etc` cannot be made writable, so **no systemd

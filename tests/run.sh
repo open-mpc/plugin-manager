@@ -309,6 +309,16 @@ grep -qx "new-daemon" /data/openmpc-pm/openmpc-pm-daemon && grep -q "^systemd-ru
 rm -f /tmp/bg-calls; : > /tmp/bg-calls   # the same daemon again: nothing is run
 PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
 ! grep -q "systemd-run" /tmp/bg-calls || { echo "an up-to-date daemon was restarted"; cat /tmp/bg-calls; exit 1; }
+# Gen1: no /nvme, a daemon-only payload; the same refresh writes the systemd unit into the root image and starts the service (never systemd-run, never acvs)
+rm -rf /nvme /data/openmpc-pm /tmp/bgown /tmp/bg-calls /usr/lib/systemd/system/openmpc-pm-daemon.service /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service
+mkdir -p /data/openmpc-pm /tmp/bgown/bgserver /usr/lib/systemd/system/multi-user.target.wants
+echo old-daemon > /data/openmpc-pm/openmpc-pm-daemon; echo new-daemon > /tmp/bgown/bgserver/openmpc-pm-daemon
+printf "[Service]\nExecStart=/data/openmpc-pm/openmpc-pm-daemon\n" > /usr/lib/systemd/system/openmpc-pm-daemon.service
+PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
+grep -qx "new-daemon" /data/openmpc-pm/openmpc-pm-daemon && grep -q "^systemctl start openmpc-pm-daemon.service" /tmp/bg-calls || { echo "gen1: the daemon was not replaced and started"; cat /tmp/bg-calls /tmp/openmpc-pm/manager.log; exit 1; }
+grep -q "^ExecStart=/data/openmpc-pm/openmpc-pm-daemon" /usr/lib/systemd/system/openmpc-pm-daemon.service && grep -q "^WantedBy=multi-user.target" /usr/lib/systemd/system/openmpc-pm-daemon.service && [ -L /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service ] || { echo "gen1: the unit or its boot symlink is wrong"; cat /usr/lib/systemd/system/openmpc-pm-daemon.service; exit 1; }
+! grep -q "systemd-run\|acvs" /tmp/bg-calls || { echo "gen1: used systemd-run or touched MPC"; cat /tmp/bg-calls; exit 1; }
+rm -rf /usr/lib/systemd/system/openmpc-pm-daemon.service /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service /data/openmpc-pm
 for c in systemctl systemd-run pgrep; do rm -f /usr/sbin/$c; [ -e /tmp/bgstub/$c.orig ] && mv /tmp/bgstub/$c.orig /usr/sbin/$c; done
 # per-device catalog entries: shown when the model is unknown or listed, hidden on another MPC
 rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media

@@ -48,3 +48,16 @@ if [ "$arch" = aarch64 ] || [ "$arch" = all ]; then
         echo "NOTE: the device script is not signed (no checksum in daemon/device-script/openmpc_pm_launch.ini): no bgserver payload"
     fi
 fi
+
+# Background-server payload (Gen1): the armv7 daemon alone, run from a systemd unit the plugin writes (daemon/install.sh install_force).
+# Built into vst/build/bgserver-armv7/; the release workflow adds it to the armv7 zip as bgserver/ (extra_armv7).
+if [ "$arch" = armv7 ] || [ "$arch" = all ]; then
+    "$here/build_daemon.sh" armv7
+    bgout="$here/build/bgserver-armv7"
+    rm -rf "$bgout"; mkdir -p "$bgout"
+    cp "$here/build/daemon/openmpc-pm-daemon-armv7" "$bgout/openmpc-pm-daemon"
+    echo "bgserver payload in $bgout: $(ls "$bgout" | tr '\n' ' ')"
+    if [ "$arch" = armv7 ]; then
+        for d in "$here"/build/skin/*/; do rm -rf "$d/bgserver"; cp -r "$bgout" "$d/bgserver"; done
+    fi
+fi

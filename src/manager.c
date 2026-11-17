@@ -1620,7 +1620,21 @@ static void bg_content_root(char *out, size_t n) {   /* content drive holding "M
     if (is_dir("/nvme")) snprintf(out, n, "/nvme");   /* exists but Devices not made yet */
 }
 
+/* Gen1 (armv7, MPC OS 3.9.x): the payload is the daemon alone (no launcher .so), run as a systemd service whose unit lives in the
+ * root image (/etc is an overlay systemd ignores at boot; / is plain ext4, remounted rw for the write). See daemon/install.sh install_force. */
+#define BG_GEN1_UNIT_DIR "/usr/lib/systemd/system"
+static int bg_src_gen1(const mgr_t *m) {
+    char src[340], p[380]; bg_src(m, src, sizeof src);
+    if (!src[0]) return 0;
+    snprintf(p, sizeof p, "%s/openmpc_pm_launch.so", src);
+    return access(p, F_OK) != 0;
+}
+static int bg_dev_gen1(void) {   /* this device has no Gen2 content drive for a device script, but runs units from the root image */
+    return !is_dir("/nvme") && is_dir(BG_GEN1_UNIT_DIR);
+}
+
 static int bg_is_installed(void) {
+    if (bg_dev_gen1()) return access(BG_GEN1_UNIT_DIR "/" BG_UNIT ".service", F_OK) == 0 && access(BG_BIN, F_OK) == 0;
     char root[200]; bg_content_root(root, sizeof root);
     if (!root[0]) return 0;
     char p[360];
@@ -1639,7 +1653,30 @@ static void bg_refresh(mgr_t *m) {   /* update the cached state shown in SETTING
     m->bg_run = m->bg_on && bg_is_running();
 }
 
+static int bg_install_gen1(mgr_t *m) {   /* 0 ok */
+    char src[340]; bg_src(m, src, sizeof src);
+    if (!src[0]) return -1;
+    char cmd[2600];
+    snprintf(cmd, sizeof cmd,
+        "set -e; "
+        "mkdir -p '" BG_BIN_DIR "'; cp '%s/openmpc-pm-daemon' '" BG_BIN "'; chmod 755 '" BG_BIN "'; "
+        "RO=0; case \",$(findmnt -rn -M / -o OPTIONS),\" in *,ro,*) RO=1; mount -o remount,rw / ;; esac; "
+        "D=" BG_GEN1_UNIT_DIR "; mkdir -p $D/multi-user.target.wants; "
+        "printf '[Unit]\\nDescription=OpenMPC Plugin Manager background server (LAN web UI on :8790)\\nAfter=data.mount\\n"
+        "[Service]\\nType=simple\\nExecStart=" BG_BIN "\\nRestart=always\\nRestartSec=5\\nNice=10\\nIOSchedulingClass=idle\\n"
+        "[Install]\\nWantedBy=multi-user.target\\n' > $D/" BG_UNIT ".service; "
+        "ln -sf ../" BG_UNIT ".service $D/multi-user.target.wants/" BG_UNIT ".service; "
+        "sync; [ $RO = 1 ] && mount -o remount,ro / || true; "
+        "systemctl daemon-reload; "
+        BG_STOP
+        "systemctl start " BG_UNIT ".service",
+        src);
+    (void)m;
+    return sh(cmd);
+}
+
 static int bg_install(mgr_t *m) {   /* 0 ok */
+    if (bg_src_gen1(m)) return bg_install_gen1(m);
     char src[340], root[200];
     bg_src(m, src, sizeof src); bg_content_root(root, sizeof root);
     if (!src[0] || !root[0]) return -1;
@@ -1680,6 +1717,14 @@ static void bg_heal(mgr_t *m) {
 }
 
 static int bg_uninstall(mgr_t *m) {
+    if (bg_dev_gen1()) {
+        (void)m;
+        return sh(BG_STOP
+            "RO=0; case \",$(findmnt -rn -M / -o OPTIONS),\" in *,ro,*) RO=1; mount -o remount,rw / ;; esac; "
+            "rm -f " BG_GEN1_UNIT_DIR "/" BG_UNIT ".service " BG_GEN1_UNIT_DIR "/multi-user.target.wants/" BG_UNIT ".service; "
+            "sync; [ $RO = 1 ] && mount -o remount,ro / || true; systemctl daemon-reload; "
+            "rm -f '" BG_BIN "'; rmdir '" BG_BIN_DIR "' 2>/dev/null; true");
+    }
     char root[200]; bg_content_root(root, sizeof root);
     char cmd[1200];
     snprintf(cmd, sizeof cmd,
@@ -3516,13 +3561,13 @@ static void mgr_set_param(void *inst, const char *key, const char *val) {
         cfg_save(m);
     } else if (!strcmp(key, "set_bgsrv_btn")) {   /* SETTINGS: install/remove the always-on background server (Gen2) */
         if (!m->bg_avail)
-            say_locked(m, ERR, "The background server needs a Gen2 (64-bit) MPC; this build has no payload");
+            say_locked(m, ERR, "This build ships no background server payload");
         else if (m->bg_on) {
             if (bg_uninstall(m) == 0) say_locked(m, OK, "Background server removed. The web page is served only while this plugin is loaded.");
             else say_locked(m, ERR, "Could not remove the background server");
         } else {
             if (bg_install(m) == 0) say_locked(m, OK, "Background server installed and started: it now serves the web page at boot, with or without this plugin loaded.");
-            else say_locked(m, ERR, "Could not install the background server (is this a Gen2 running MPC OS 3.10.x?)");
+            else say_locked(m, ERR, "Could not install the background server (Gen1: MPC OS 3.9.x; Gen2: MPC OS 3.10.x)");
         }
         bg_refresh(m);
     } else if (!strncmp(key, "pat", 3) && key[3] >= '1' && key[3] <= '3' && !strcmp(key + 4, "_chk") && !m->busy && !m->job) {   /* PATCHES: CHECK */
@@ -3729,7 +3774,7 @@ static int mgr_get_param(void *inst, const char *key, char *b, int n) {
     }
     else if (!strcmp(key, "set_web_txt")) snprintf(b, n, "%s%s", m->web_pref ? "ON" : "OFF", m->web_pref != m->web_on ? "  \xc2\xb7  restart" : "");
     else if (!strcmp(key, "set_bgsrv_txt")) {
-        if (!m->bg_avail) snprintf(b, n, "Gen2 only");
+        if (!m->bg_avail) snprintf(b, n, "not in this build");
         else if (!m->bg_on) snprintf(b, n, "OFF");
         else snprintf(b, n, "ON%s", m->bg_run ? "  \xc2\xb7  running" : "  \xc2\xb7  starts at boot");
     }
