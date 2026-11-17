@@ -1629,11 +1629,11 @@ static int bg_src_gen1(const mgr_t *m) {
     snprintf(p, sizeof p, "%s/openmpc_pm_launch.so", src);
     return access(p, F_OK) != 0;
 }
-static int bg_dev_gen1(void) {   /* a 32-bit build on a device that runs units from the root image. By CPU, not by folders: a Gen2 without /nvme (content on /sdcard) also has /usr/lib/systemd/system */
+static int bg_dev_gen1(void) {   /* a 32-bit-or-host build with no Gen2 content drive (/nvme) on a device that runs units from the root image. aarch64 builds are never Gen1 (a Gen2 with its content on /sdcard also has the unit folder); the /nvme test keeps the offline tests (x86 containers, a Gen2 fake device with /nvme) honest */
 #if defined(__aarch64__)
     return 0;
 #else
-    return is_dir(BG_GEN1_UNIT_DIR);
+    return !is_dir("/nvme") && is_dir(BG_GEN1_UNIT_DIR);
 #endif
 }
 
