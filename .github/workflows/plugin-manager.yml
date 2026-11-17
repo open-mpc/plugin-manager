@@ -19,7 +19,7 @@ on:
 permissions:
   contents: read
 env:
-  TOOLS_REF: 57671270881833a55855e4782f384b8133421034
+  TOOLS_REF: caee149e1177a9acce0b834a007fab486642add3
 jobs:
   # A release of a commit whose push run already passed the tests reuses that result instead of testing again.
   tested:
@@ -75,11 +75,11 @@ jobs:
     if: ${{ always() && github.event_name == 'workflow_dispatch' && needs.version.result == 'success' && (needs.test.result == 'success' || (needs.test.result == 'skipped' && needs.tested.outputs.ok == 'true')) }}
     permissions:
       contents: write
-    uses: open-mpc/mpc-vst-plugins/.github/workflows/vst-release.yml@57671270881833a55855e4782f384b8133421034
+    uses: open-mpc/mpc-vst-plugins/.github/workflows/vst-release.yml@caee149e1177a9acce0b834a007fab486642add3
     with:
       tag: plugin-manager-g2-v${{ inputs.version }}
       version: ${{ inputs.version }}
-      tools_ref: 57671270881833a55855e4782f384b8133421034
+      tools_ref: caee149e1177a9acce0b834a007fab486642add3
       vst_dir: vst
       build: vst/build_themes.sh all
       extra: vst/build/bgserver-gen1:bgserver-gen1   # Gen1: the armv7 daemon alone; the plugin writes its systemd unit (daemon/install.sh install_force)
