@@ -82,7 +82,7 @@ jobs:
       tools_ref: 57671270881833a55855e4782f384b8133421034
       vst_dir: vst
       build: vst/build_themes.sh all
-      extra: vst/build/bgserver-armv7:bgserver   # Gen1: the armv7 daemon alone; the plugin writes its systemd unit (daemon/install.sh install_force)
+      extra: vst/build/bgserver-gen1:bgserver-gen1   # Gen1: the armv7 daemon alone; the plugin writes its systemd unit (daemon/install.sh install_force)
       extra_aarch64: vst/build/bgserver-aarch64:bgserver   # the background server's daemon + signed launcher, in the Gen2 zip only (daemon/README.md)
       about: Browse the OpenMPC catalog and install, update and remove plugins on the MPC itself, with rollback; for Gen1 and Gen2.
       plugin_id: plugin-manager-g2

@@ -1601,11 +1601,26 @@ static void cfg_save(const mgr_t *m) {   /* tmp, then rename */
     "sleep 1; " \
     "for p in $(pgrep -f '^" BG_BIN "' 2>/dev/null); do kill -9 \"$p\" 2>/dev/null || true; done; "
 
+/* Which payload this build uses: Gen2 (aarch64) reads bgserver/ (the daemon + signed launcher), Gen1 reads bgserver-gen1/ (the daemon alone, run from a
+ * systemd unit). Both can sit in one plugin folder (the SDK-format zip); each device loads only its own CPU's .so, so the build decides, nothing is probed.
+ * Offline tests (FS_ANY builds, x86) pick with PM_BG_GEN1=0|1. */
+static int bg_build_gen1(void) {
+#ifdef FS_ANY
+    const char *e = getenv("PM_BG_GEN1");
+    if (e && *e) return atoi(e);
+#endif
+#if defined(__aarch64__)
+    return 0;
+#else
+    return 1;
+#endif
+}
+
 static void bg_src(const mgr_t *m, char *out, size_t n) {   /* this plugin's shipped payload dir, "" if none */
     out[0] = 0;
     if (!m->own[0]) return;
     char d[320];
-    snprintf(d, sizeof d, "%s/bgserver", m->own);
+    snprintf(d, sizeof d, "%s/%s", m->own, bg_build_gen1() ? "bgserver-gen1" : "bgserver");
     if (is_dir(d)) snprintf(out, n, "%s", d);
 }
 
@@ -1623,19 +1638,8 @@ static void bg_content_root(char *out, size_t n) {   /* content drive holding "M
 /* Gen1 (armv7, MPC OS 3.9.x): the payload is the daemon alone (no launcher .so), run as a systemd service whose unit lives in the
  * root image (/etc is an overlay systemd ignores at boot; / is plain ext4, remounted rw for the write). See daemon/install.sh install_force. */
 #define BG_GEN1_UNIT_DIR "/usr/lib/systemd/system"
-static int bg_src_gen1(const mgr_t *m) {
-    char src[340], p[380]; bg_src(m, src, sizeof src);
-    if (!src[0]) return 0;
-    snprintf(p, sizeof p, "%s/openmpc_pm_launch.so", src);
-    return access(p, F_OK) != 0;
-}
-static int bg_dev_gen1(void) {   /* a 32-bit-or-host build with no Gen2 content drive (/nvme) on a device that runs units from the root image. aarch64 builds are never Gen1 (a Gen2 with its content on /sdcard also has the unit folder); the /nvme test keeps the offline tests (x86 containers, a Gen2 fake device with /nvme) honest */
-#if defined(__aarch64__)
-    return 0;
-#else
-    return !is_dir("/nvme") && is_dir(BG_GEN1_UNIT_DIR);
-#endif
-}
+static int bg_src_gen1(const mgr_t *m) { (void)m; return bg_build_gen1(); }
+static int bg_dev_gen1(void) { return bg_build_gen1(); }
 
 static int bg_is_installed(void) {
     if (bg_dev_gen1()) return access(BG_GEN1_UNIT_DIR "/" BG_UNIT ".service", F_OK) == 0 && access(BG_BIN, F_OK) == 0;

@@ -303,18 +303,18 @@ for f in openmpc_pm_launch.so openmpc_pm_launch.lua openmpc_pm_launch.ini; do ec
 echo x > "/nvme/MPC Documents/Devices/OpenMPC PM Server/openmpc_pm_launch.so"
 # the manager runs its commands with its own PATH (/usr/sbin first), so the stubs go there, and the real ones come back after
 for c in systemctl systemd-run pgrep; do [ -e /usr/sbin/$c ] && mv /usr/sbin/$c /tmp/bgstub/$c.orig; printf "#!/bin/sh\necho %s \"\$*\" >> /tmp/bg-calls\nexit 0\n" $c > /usr/sbin/$c; chmod +x /usr/sbin/$c; done
-PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
+PM_BG_GEN1=0 PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
 grep -qx "new-daemon" /data/openmpc-pm/openmpc-pm-daemon && grep -q "^systemd-run --unit=openmpc-pm-daemon" /tmp/bg-calls || { echo "the daemon was not replaced and restarted"; cat /tmp/bg-calls /tmp/openmpc-pm/manager.log /tmp/bgheal.out; exit 1; }
 ! grep -q "acvs" /tmp/bg-calls || { echo "the daemon refresh touched MPC (acvs)"; cat /tmp/bg-calls; exit 1; }
 rm -f /tmp/bg-calls; : > /tmp/bg-calls   # the same daemon again: nothing is run
-PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
+PM_BG_GEN1=0 PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
 ! grep -q "systemd-run" /tmp/bg-calls || { echo "an up-to-date daemon was restarted"; cat /tmp/bg-calls; exit 1; }
-# Gen1: no /nvme, a daemon-only payload; the same refresh writes the systemd unit into the root image and starts the service (never systemd-run, never acvs)
+# Gen1 (the build picks bgserver-gen1/: PM_BG_GEN1=1), a daemon-only payload; the same refresh writes the systemd unit into the root image and starts the service (never systemd-run, never acvs)
 rm -rf /nvme /data/openmpc-pm /tmp/bgown /tmp/bg-calls /usr/lib/systemd/system/openmpc-pm-daemon.service /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service
-mkdir -p /data/openmpc-pm /tmp/bgown/bgserver /usr/lib/systemd/system/multi-user.target.wants
-echo old-daemon > /data/openmpc-pm/openmpc-pm-daemon; echo new-daemon > /tmp/bgown/bgserver/openmpc-pm-daemon
+mkdir -p /data/openmpc-pm /tmp/bgown/bgserver-gen1 /usr/lib/systemd/system/multi-user.target.wants
+echo old-daemon > /data/openmpc-pm/openmpc-pm-daemon; echo new-daemon > /tmp/bgown/bgserver-gen1/openmpc-pm-daemon
 printf "[Service]\nExecStart=/data/openmpc-pm/openmpc-pm-daemon\n" > /usr/lib/systemd/system/openmpc-pm-daemon.service
-PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
+PM_BG_GEN1=1 PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
 grep -qx "new-daemon" /data/openmpc-pm/openmpc-pm-daemon && grep -q "^systemctl start openmpc-pm-daemon.service" /tmp/bg-calls || { echo "gen1: the daemon was not replaced and started"; cat /tmp/bg-calls /tmp/openmpc-pm/manager.log; exit 1; }
 grep -q "^ExecStart=/data/openmpc-pm/openmpc-pm-daemon" /usr/lib/systemd/system/openmpc-pm-daemon.service && grep -q "^WantedBy=multi-user.target" /usr/lib/systemd/system/openmpc-pm-daemon.service && [ -L /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service ] || { echo "gen1: the unit or its boot symlink is wrong"; cat /usr/lib/systemd/system/openmpc-pm-daemon.service; exit 1; }
 ! grep -q "systemd-run\|acvs" /tmp/bg-calls || { echo "gen1: used systemd-run or touched MPC"; cat /tmp/bg-calls; exit 1; }
