@@ -1638,6 +1638,12 @@ static void bg_content_root(char *out, size_t n) {   /* content drive holding "M
 /* Gen1 (armv7, MPC OS 3.9.x): the payload is the daemon alone (no launcher .so), run as a systemd service whose unit lives in the
  * root image (/etc is an overlay systemd ignores at boot; / is plain ext4, remounted rw for the write). See daemon/install.sh install_force. */
 #define BG_GEN1_UNIT_DIR "/usr/lib/systemd/system"
+/* / is read-only on Gen1: remount it rw for the unit, and put it back at the END (a remount,ro fails "busy" while anything still has a file open for
+ * writing; device, Force 3.9.1.2: the first try failed and the old "|| true" left / read-write). Retry for ~10 s; exit 3 when it still is not read-only. */
+#define BG_RO_OPEN \
+    "RO=0; case \",$(findmnt -rn -M / -o OPTIONS),\" in *,ro,*) RO=1; mount -o remount,rw / ;; esac; "
+#define BG_RO_CLOSE \
+    "sync; if [ $RO = 1 ]; then n=0; until mount -o remount,ro / 2>/dev/null; do n=$((n+1)); [ $n -ge 10 ] && exit 3; sleep 1; done; fi; "
 static int bg_src_gen1(const mgr_t *m) { (void)m; return bg_build_gen1(); }
 static int bg_dev_gen1(void) { return bg_build_gen1(); }
 
@@ -1661,23 +1667,23 @@ static void bg_refresh(mgr_t *m) {   /* update the cached state shown in SETTING
     m->bg_run = m->bg_on && bg_is_running();
 }
 
-static int bg_install_gen1(mgr_t *m) {   /* 0 ok */
+static int bg_install_gen1(mgr_t *m) {   /* 0 ok; 3 installed but / could not be set back to read-only */
     char src[340]; bg_src(m, src, sizeof src);
     if (!src[0]) return -1;
     char cmd[2600];
     snprintf(cmd, sizeof cmd,
         "set -e; "
         "mkdir -p '" BG_BIN_DIR "'; cp '%s/openmpc-pm-daemon' '" BG_BIN "'; chmod 755 '" BG_BIN "'; "
-        "RO=0; case \",$(findmnt -rn -M / -o OPTIONS),\" in *,ro,*) RO=1; mount -o remount,rw / ;; esac; "
+        BG_RO_OPEN
         "D=" BG_GEN1_UNIT_DIR "; mkdir -p $D/multi-user.target.wants; "
         "printf '[Unit]\\nDescription=OpenMPC Plugin Manager background server (LAN web UI on :8790)\\nAfter=data.mount\\n"
         "[Service]\\nType=simple\\nExecStart=" BG_BIN "\\nRestart=always\\nRestartSec=5\\nNice=10\\nIOSchedulingClass=idle\\n"
         "[Install]\\nWantedBy=multi-user.target\\n' > $D/" BG_UNIT ".service; "
         "ln -sf ../" BG_UNIT ".service $D/multi-user.target.wants/" BG_UNIT ".service; "
-        "sync; [ $RO = 1 ] && mount -o remount,ro / || true; "
         "systemctl daemon-reload; "
         BG_STOP
-        "systemctl start " BG_UNIT ".service",
+        "systemctl start " BG_UNIT ".service; "
+        BG_RO_CLOSE,
         src);
     (void)m;
     return sh(cmd);
@@ -1727,11 +1733,12 @@ static void bg_heal(mgr_t *m) {
 static int bg_uninstall(mgr_t *m) {
     if (bg_dev_gen1()) {
         (void)m;
-        return sh(BG_STOP
-            "RO=0; case \",$(findmnt -rn -M / -o OPTIONS),\" in *,ro,*) RO=1; mount -o remount,rw / ;; esac; "
+        return sh("set -e; " BG_STOP
+            BG_RO_OPEN
             "rm -f " BG_GEN1_UNIT_DIR "/" BG_UNIT ".service " BG_GEN1_UNIT_DIR "/multi-user.target.wants/" BG_UNIT ".service; "
-            "sync; [ $RO = 1 ] && mount -o remount,ro / || true; systemctl daemon-reload; "
-            "rm -f '" BG_BIN "'; rmdir '" BG_BIN_DIR "' 2>/dev/null; true");
+            "systemctl daemon-reload; "
+            "rm -f '" BG_BIN "'; rmdir '" BG_BIN_DIR "' 2>/dev/null || true; "
+            BG_RO_CLOSE);
     }
     char root[200]; bg_content_root(root, sizeof root);
     char cmd[1200];
@@ -3571,10 +3578,14 @@ static void mgr_set_param(void *inst, const char *key, const char *val) {
         if (!m->bg_avail)
             say_locked(m, ERR, "This build ships no background server payload");
         else if (m->bg_on) {
-            if (bg_uninstall(m) == 0) say_locked(m, OK, "Background server removed. The web page is served only while this plugin is loaded.");
+            int rc = bg_uninstall(m);
+            if (rc == 0) say_locked(m, OK, "Background server removed. The web page is served only while this plugin is loaded.");
+            else if (rc == 3) say_locked(m, ERR, "Removed, but the system partition is still read-write: restart the MPC");
             else say_locked(m, ERR, "Could not remove the background server");
         } else {
-            if (bg_install(m) == 0) say_locked(m, OK, "Background server installed and started: it now serves the web page at boot, with or without this plugin loaded.");
+            int rc = bg_install(m);
+            if (rc == 0) say_locked(m, OK, "Background server installed and started: it now serves the web page at boot, with or without this plugin loaded.");
+            else if (rc == 3) say_locked(m, ERR, "Installed and started, but the system partition is still read-write: restart the MPC");
             else say_locked(m, ERR, "Could not install the background server (Gen1: MPC OS 3.9.x; Gen2: MPC OS 3.10.x)");
         }
         bg_refresh(m);

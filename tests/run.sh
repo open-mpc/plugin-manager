@@ -318,6 +318,18 @@ PM_BG_GEN1=1 PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
 grep -qx "new-daemon" /data/openmpc-pm/openmpc-pm-daemon && grep -q "^systemctl start openmpc-pm-daemon.service" /tmp/bg-calls || { echo "gen1: the daemon was not replaced and started"; cat /tmp/bg-calls /tmp/openmpc-pm/manager.log; exit 1; }
 grep -q "^ExecStart=/data/openmpc-pm/openmpc-pm-daemon" /usr/lib/systemd/system/openmpc-pm-daemon.service && grep -q "^WantedBy=multi-user.target" /usr/lib/systemd/system/openmpc-pm-daemon.service && [ -L /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service ] || { echo "gen1: the unit or its boot symlink is wrong"; cat /usr/lib/systemd/system/openmpc-pm-daemon.service; exit 1; }
 ! grep -q "systemd-run\|acvs" /tmp/bg-calls || { echo "gen1: used systemd-run or touched MPC"; cat /tmp/bg-calls; exit 1; }
+# Gen1 again with a read-only root whose first remount,ro fails "busy" (Force 3.9.1.2: the old "|| true" left / read-write): it is retried and ends read-only
+mkdir -p /data/openmpc-pm /usr/lib/systemd/system/multi-user.target.wants; rm -f /tmp/bg-calls /tmp/mount-n; : > /tmp/bg-calls
+echo old-daemon > /data/openmpc-pm/openmpc-pm-daemon; echo new-daemon > /tmp/bgown/bgserver-gen1/openmpc-pm-daemon
+printf "[Service]\nExecStart=/data/openmpc-pm/openmpc-pm-daemon\n" > /usr/lib/systemd/system/openmpc-pm-daemon.service
+for c in findmnt mount; do [ -e /usr/sbin/$c ] && mv /usr/sbin/$c /tmp/bgstub/$c.orig; done
+printf "#!/bin/sh\necho ro,relatime\n" > /usr/sbin/findmnt
+printf "#!/bin/sh\necho mount \"\$*\" >> /tmp/bg-calls\ncase \"\$*\" in *remount,ro*) n=\$(cat /tmp/mount-n 2>/dev/null || echo 0); echo \$((n+1)) > /tmp/mount-n; [ \$n -ge 1 ] || exit 32;; esac\nexit 0\n" > /usr/sbin/mount
+chmod +x /usr/sbin/findmnt /usr/sbin/mount
+PM_BG_GEN1=1 PM_OWN=/tmp/bgown /tmp/drive_addins bgheal > /tmp/bgheal.out
+grep -c "^mount -o remount,ro /" /tmp/bg-calls | grep -qx 2 && grep -q "^mount -o remount,rw /" /tmp/bg-calls || { echo "gen1: / was not remounted rw then retried to ro (expected one rw, two ro)"; cat /tmp/bg-calls /tmp/openmpc-pm/manager.log; exit 1; }
+lro=$(grep -n "remount,ro" /tmp/bg-calls | tail -n 1 | cut -d: -f1); lst=$(grep -n "systemctl start" /tmp/bg-calls | tail -n 1 | cut -d: -f1); [ -n "$lro" ] && [ -n "$lst" ] && [ "$lro" -gt "$lst" ] || { echo "gen1: / was set read-only before the service was started"; cat /tmp/bg-calls; exit 1; }
+for c in findmnt mount; do rm -f /usr/sbin/$c; [ -e /tmp/bgstub/$c.orig ] && mv /tmp/bgstub/$c.orig /usr/sbin/$c; done
 rm -rf /usr/lib/systemd/system/openmpc-pm-daemon.service /usr/lib/systemd/system/multi-user.target.wants/openmpc-pm-daemon.service /data/openmpc-pm
 for c in systemctl systemd-run pgrep; do rm -f /usr/sbin/$c; [ -e /tmp/bgstub/$c.orig ] && mv /tmp/bgstub/$c.orig /usr/sbin/$c; done
 # per-device catalog entries: shown when the model is unknown or listed, hidden on another MPC

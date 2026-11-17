@@ -110,7 +110,7 @@ def main():
     for nm, title, desc in (("theme", "THEME", "Light or dark. MPC keeps skins in memory, so a change shows after the next restart."),
                             ("beta", "BETA PLUGINS", "Show beta releases in Discover. Plugins you have installed always show."),
                             ("web", "WEB PAGE", "Serve the plugin list on your network (port 8790) while this plugin is loaded."),
-                            ("bgsrv", "BACKGROUND SERVER", "Gen2: keep the web page on your network all the time, started at boot — no need to load this plugin."),
+                            ("bgsrv", "BACKGROUND SERVER", "Keep the web page on your network all the time, started at boot — no need to load this plugin."),
                             ("cache", "IMAGE CACHE", "MPC's skin cache fills up and then skins draw black. Clearing restarts MPC (APPLY).")):
         svg("set_row_%s.svg" % nm, 1232, 82, '<rect x="0.5" y="0.5" width="1231" height="81" rx="8" fill="%s" stroke="%s"/>' % (PANEL, LINE)
             + text(28, 34, title, 26, INK, 700, spacing=1) + text(28, 64, desc, 21, DIM, 600))
