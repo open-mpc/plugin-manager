@@ -70,6 +70,14 @@ static void web_state(mgr_t *m, wbuf_t *w) {
     wesc(w, m->dev->problem, 0);
     wput(w, "\",\"downloading\":%d,\"progress\":%.2f,\"disk\":\"", m->downloading, m->progress);
     wesc(w, m->disk_free, 0);
+    {   /* an apply under way (MPC is stopped, this page is all there is to see): "step\tof\tact\tid\tversion", from apply.sh */
+        char j[300], pr[200] = "";
+        snprintf(j, sizeof j, "%s/.openmpcpm-journal", m->dev->base);
+        FILE *pf = m->dev->base[0] && is_file(j) ? fopen(WORK "/progress", "r") : NULL;
+        if (pf) { if (!fgets(pr, sizeof pr, pf)) pr[0] = 0; fclose(pf); pr[strcspn(pr, "\n")] = 0; }
+        wput(w, "\",\"apply\":\"");
+        wesc(w, pr, 0);
+    }
     wput(w, "\",\"tsel\":%d,\"targets\":[", ntargets(m) ? m->tsel % ntargets(m) : 0);
     for (int k = 0; k < ntargets(m) && k < 4; k++) {   /* where new installs go (the screen's drive menu shows four) */
         wput(w, "%s{\"name\":\"", k ? "," : "");

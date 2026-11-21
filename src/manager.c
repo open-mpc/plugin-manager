@@ -33,6 +33,7 @@
 #include <gnu/libc-version.h>
 #include "plugin_list_awk.h"
 #include "vst2_migrate_sh.h"
+#include "recover_sh.h"
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -2591,7 +2592,7 @@ static void show_result(mgr_t *m, const pkg_t *pkg, int n) {
     if (rename(WORK "/result", mine)) return;
     char *s = slurp(mine, 8192);
     if (!s) { unlink(mine); return; }
-    int ok = 0, bad = 0;
+    int ok = 0, bad = 0, cut = 0;
     char first[300] = "";
     char *sv = NULL;
     for (char *l = strtok_r(s, "\n", &sv); l; l = strtok_r(NULL, "\n", &sv)) {
@@ -2604,6 +2605,7 @@ static void show_result(mgr_t *m, const pkg_t *pkg, int n) {
             if (sscanf(b + 1, "%11s %23s", act, ver) >= 1 && strncmp(l, "loc-", 4)) hist_record(m->dev, l, act, ver);
         }
         else {
+            if (!strncmp(b + 1, "interrupted", 11)) cut++;
             if (!bad++) {
                 const char *name = l;
                 for (int i = 0; i < n; i++) if (!strcmp(pkg[i].id, l)) name = pkg[i].name;
@@ -2615,8 +2617,26 @@ static void show_result(mgr_t *m, const pkg_t *pkg, int n) {
     rename(mine, WORK "/result.seen");
     if (!ok && !bad) return;
     if (ok) prune_backups(m->dev);
-    if (bad) say_locked(m, ERR, "Last apply: %d done, %d failed and put back as they were. %s", ok, bad, first);
+    if (cut) say_locked(m, ERR, "The last update did not finish. %s", first);
+    else if (bad) say_locked(m, ERR, "Last apply: %d done, %d failed and put back as they were. %s", ok, bad, first);
     else say_locked(m, OK, "Last apply: %d done.", ok);
+}
+
+/* An apply cut off by a power cut or a switch-off left its journal (apply.sh, recover.sh): finish or undo it before anything else, so
+ * the folders read below are the ones that stay. Only renames and deletes of leftovers, safe while MPC runs; recover.sh does nothing while
+ * that apply.sh still runs (the background server refreshes during an apply). What it did is shown once, like an apply's result. */
+static void recover_cut_off(mgr_t *m) {
+    char j[300];
+    if (!m->dev->base[0] || snprintf(j, sizeof j, "%s/.openmpcpm-journal", m->dev->base) >= (int)sizeof j || !is_file(j)) return;
+    mkdir(WORK, 0755);
+    FILE *v = fopen(WORK "/recover.sh", "w");
+    if (!v) return;
+    fputs(RECOVER_SH, v);
+    fclose(v);
+    char *argv[] = {"sh", WORK "/recover.sh", j, WORK "/result", NULL};
+    int rc = run(argv);
+    logf_("an apply was cut off: recover.sh exit %d", rc);
+    probe_device(m->dev);
 }
 
 static void do_refresh(mgr_t *m) {
@@ -2653,6 +2673,7 @@ static void do_refresh(mgr_t *m) {
     }
     free(s.buf);
     probe_device(m->dev);
+    recover_cut_off(m);
     l.n = add_local(m->dev, tmp, l.n);
     theme_init(m);
     if (retire_old_self(m) + repair_vst2_json(m)) probe_device(m->dev);   /* the old folder's entry is gone; repaired folders are listed */
@@ -2862,6 +2883,7 @@ static void prepare(mgr_t *m, pkg_t *q) {
             }
         }
     }
+    int nsteps = nq + (m->migrate ? 1 : 0) + m->nregq + (theme_dirty(m) ? 1 : 0) + 1;   /* the last one: starting MPC */
     FILE *f = err ? NULL : fopen(WORK "/apply.sh", "w");
     if (!err && !f) err = "apply.sh could not be written";
     if (f) {
@@ -2872,8 +2894,24 @@ static void prepare(mgr_t *m, pkg_t *q) {
                    "setstate() { grep -v \"^$1 \" \"$STATE\" 2>/dev/null > \"$STATE.new\"; [ -n \"$2\" ] && echo \"$1 $2\" >> \"$STATE.new\"; mv \"$STATE.new\" \"$STATE\"; }\n"
                    "batch() { grep -q -- '-n)' \"$1\" && printf '%%s' -n; }   # older installers lack -n and restart MPC themselves\n"
                    "SETTINGS='%s'; SNAP='" WORK "/snap'; RES='" WORK "/result'\nrm -rf \"$SNAP\"; mkdir -p \"$SNAP\"; : > \"$RES\"\n"
-                   /* item ID FOLDER cmd...: snapshot the plugin folder and MPC.settings, run cmd; on failure put both back and say why (DESIGN 7) */
-                   "item() {\n  id=$1; dir=$2; act=$3; ver=$4; shift 4; snap=''\n"
+                   /* the journal (on the settings drive, so it survives a power cut): an apply cut off before is finished or undone first
+                    * (recover.sh, the same script the Manager runs at start), then this one records each step it begins and ends */
+                   "J='%s/.openmpcpm-journal'; PROG='" WORK "/progress'; NSTEP=%d; STEP=0; TAB=$(printf '\\t')\n"
+                   "[ -f \"$J\" ] && APPLY_PID=$$ sh '" WORK "/recover.sh' \"$J\" \"$RES\"\n"
+                   "printf 'pid\\t%%s\\n' $$ > \"$J\"; sync\n"
+                   "jot() { printf '%%s\\n' \"$*\" >> \"$J\"; sync; }\n"
+                   /* the update screen on the MPC's own display (src/splash.c; through Akai's splash where there is one). It never holds the
+                    * display while MPC could start, exits by itself once MPC runs or this script is gone, and is stopped before MPC starts */
+                   "SPL=''\nsplash_start() { [ -x '" WORK "/splash' ] && ! pidof MPC >/dev/null || return 0; [ -n \"$SPL\" ] && kill -0 \"$SPL\" 2>/dev/null && return 0; '" WORK "/splash' \"$PROG\" '" WORK "/names' & SPL=$!; }\n"
+                   "splash_stop() { [ -n \"$SPL\" ] || return 0; kill \"$SPL\" 2>/dev/null; i=0; while kill -0 \"$SPL\" 2>/dev/null && [ $i -lt 5 ]; do sleep 1; i=$((i + 1)); done; kill -9 \"$SPL\" 2>/dev/null; wait \"$SPL\" 2>/dev/null; SPL=''; "
+                   "[ -x /usr/bin/az0x-splashctl ] && /usr/bin/az0x-splashctl drop-display >/dev/null 2>&1; return 0; }\n"
+                   "printf '0\\t%%s\\twait\\t\\t\\n' \"$NSTEP\" > \"$PROG\"; splash_start\n"
+                   /* what the web page shows while MPC is stopped: step, of, act, id, version */
+                   "progress() { STEP=$((STEP + 1)); printf '%%s\\t%%s\\t%%s\\t%%s\\t%%s\\n' \"$STEP\" \"$NSTEP\" \"$1\" \"$2\" \"$3\" > \"$PROG.new\" && mv \"$PROG.new\" \"$PROG\"; }\n"
+                   /* item ID FOLDER ACT VER cmd...: one step, journalled */
+                   "item() { progress \"$3\" \"$1\" \"$4\"; jot \"begin$TAB$1$TAB$2$TAB$3\"; item_run \"$@\"; r=$?; jot \"end$TAB$1\"; return $r; }\n"
+                   /* item_run ID FOLDER ACT VER cmd...: snapshot the plugin folder and MPC.settings, run cmd; on failure put both back and say why (DESIGN 7) */
+                   "item_run() {\n  id=$1; dir=$2; act=$3; ver=$4; shift 4; snap=''; keep=0\n"
                    /* a safety copy an earlier apply left (MPC power-cycled mid-copy, plugin-manager #46). Only a copy marked complete
                     * (<snap>.done) is ever put back, and only when the plugin folder is gone; with the folder there it is just removed */
                    "  if [ -n \"$dir\" ]; then old=\"$(dirname \"$dir\")/.pm-snap-$id\"\n"
@@ -2883,16 +2921,24 @@ static void prepare(mgr_t *m, pkg_t *q) {
                    "  fi\n"
                    /* a small folder is copied to RAM (WORK); a big one to a hidden sibling on its own drive, after a free-space check.
                     * On its own drive the installer's staged copy needs as much room again, so twice the folder (plus 64 MB) must be free */
+                   /* A big folder is not copied when its installer stages the new version beside it and swaps it in at the end (every
+                    * install.sh since 2026-09-29: the old folder stays in place until then) or it is a removal: a copy of a large folder on an
+                    * SD card took minutes with the screen dark (#46). Its rollback keeps what is in place and puts MPC.settings back. */
                    "  if [ -n \"$dir\" ] && [ -d \"$dir\" ]; then\n"
                    "    sz=$(du -sk \"$dir\" 2>/dev/null | cut -f1); sz=${sz:-0}\n"
-                   "    if [ \"$sz\" -le \"${PM_SNAP_KB:-49152}\" ]; then snap=\"$SNAP/$id.dir\"; need=$((sz + 65536)); else snap=\"$(dirname \"$dir\")/.pm-snap-$id\"; need=$((2 * sz + 65536)); fi\n"
-                   "    free=$(df -Pk \"$(dirname \"$snap\")\" 2>/dev/null | awk 'NR==2 {print $4}')\n"
-                   "    if [ \"${free:-0}\" -lt $need ]; then echo \"$id|fail|not enough free space to keep a safe copy\" >> \"$RES\"; return 1; fi\n"
-                   "    echo \"-- safety copy of $dir ($((sz / 1024)) MB), MPC starts again when the update is done\"\n"
-                   "    cp -a \"$dir\" \"$snap\" && : > \"$snap.done\" || { rm -rf \"$snap\" \"$snap.done\"; echo \"$id|fail|could not keep a safe copy\" >> \"$RES\"; return 1; }\n"
+                   "    if [ \"$sz\" -le \"${PM_SNAP_KB:-49152}\" ]; then snap=\"$SNAP/$id.dir\"; need=$((sz + 65536))\n"
+                   "    elif [ \"$act\" = remove ] || { [ \"$act\" = install ] && grep -q 'STAGE=' \"$2\" 2>/dev/null; }; then keep=1; need=$((sz + 65536))\n"
+                   "    else snap=\"$(dirname \"$dir\")/.pm-snap-$id\"; need=$((2 * sz + 65536)); fi\n"
+                   "    free=$(df -Pk \"$(dirname \"$dir\")\" 2>/dev/null | awk 'NR==2 {print $4}')\n"
+                   "    [ -n \"$snap\" ] && case $snap in \"$SNAP\"/*) free=$(df -Pk \"$SNAP\" 2>/dev/null | awk 'NR==2 {print $4}') ;; esac\n"
+                   "    if [ \"${free:-0}\" -lt $need ]; then echo \"$id|fail|not enough free space for the update\" >> \"$RES\"; return 1; fi\n"
+                   "    if [ -n \"$snap\" ]; then\n"
+                   "      echo \"-- safety copy of $dir ($((sz / 1024)) MB)\"\n"
+                   "      cp -a \"$dir\" \"$snap\" && : > \"$snap.done\" || { rm -rf \"$snap\" \"$snap.done\"; echo \"$id|fail|could not keep a safe copy\" >> \"$RES\"; return 1; }\n"
+                   "    fi\n"
                    "  fi\n"
                    "  cp -p \"$SETTINGS\" \"$SNAP/$id.settings\" 2>/dev/null\n"
-                   "  out=$(\"$@\" 2>&1); rc=$?\n  pidof MPC >/dev/null && quiesce   # an installer without -n started MPC again: MPC starts once, at the end\n"
+                   "  out=$(\"$@\" 2>&1); rc=$?\n  pidof MPC >/dev/null && { quiesce; splash_start; }   # an installer without -n started MPC again: MPC starts once, at the end\n"
                    "  if [ $rc -eq 0 ]; then echo \"$out\"; echo \"$id|ok|$act $ver\" >> \"$RES\"; [ -n \"$snap\" ] && rm -rf \"$snap\" \"$snap.done\"; rm -f \"$SNAP/$id.settings\"; return 0; fi\n"
                    "  echo \"$out\"\n"
                    /* roll back: the failed folder is moved aside (not deleted) until the safety copy is back in its place */
@@ -2901,18 +2947,39 @@ static void prepare(mgr_t *m, pkg_t *q) {
                    "    case $snap in \"$SNAP\"/*) cp -a \"$snap\" \"$dir\" ;; *) mv \"$snap\" \"$dir\" ;; esac\n"
                    "    if [ $? -eq 0 ]; then rm -rf \"$bad\" \"$snap\" \"$snap.done\"\n"
                    "    else rm -rf \"$dir\"; [ -e \"$bad\" ] && mv \"$bad\" \"$dir\"; echo \"-- $id: could not put the old folder back; the safety copy stays at $snap\"; fi\n"
+                   "  elif [ $keep = 1 ]; then   # nothing was copied: what is in place stays, the installer's leftovers go\n"
+                   "    p=$(dirname \"$dir\"); b=$(basename \"$dir\")\n"
+                   "    [ ! -d \"$dir\" ] && [ -d \"$p/.$b.old\" ] && mv \"$p/.$b.old\" \"$dir\"\n"
+                   "    rm -rf \"$p/.$b.new\"; [ -d \"$dir\" ] && rm -rf \"$p/.$b.old\"\n"
                    "  elif [ -n \"$dir\" ] && [ -z \"$snap\" ]; then rm -rf \"$dir\"   # a new install: nothing was there before\n"
                    "  fi\n"
                    "  [ -f \"$SNAP/$id.settings\" ] && cp -p \"$SNAP/$id.settings\" \"$SETTINGS\"\n"
-                   "  echo \"$id|fail|$(echo \"$out\" | tail -n 1 | tr '|' ' ')\" >> \"$RES\"; echo \"-- $id failed: rolled back\"; return 1\n}\n",
-                m->dev->state, m->dev->settings);
+                   "  kept=''; [ $keep = 1 ] && kept=' (its files in place were kept; MPC.settings was put back)'\n"
+                   "  echo \"$id|fail|$(echo \"$out\" | tail -n 1 | tr '|' ' ')$kept\" >> \"$RES\"; echo \"-- $id failed: rolled back$kept\"; return 1\n}\n",
+                m->dev->state, m->dev->settings, m->dev->base, nsteps);
+        {   /* the recovery script apply.sh runs first (and the Manager at start) */
+            FILE *v = fopen(WORK "/recover.sh", "w");
+            if (v) { fputs(RECOVER_SH, v); fclose(v); }
+            else err = "recover.sh could not be written";
+        }
+        {   /* the update screen: the plugins' names for its titles, and its program copied out of this plugin's folder (a self-update replaces
+             * that folder while it runs). Without it (an older zip, a build without the payload) apply.sh just runs without a screen. */
+            FILE *v = fopen(WORK "/names", "w");
+            if (v) { for (int k = 0; k < m->npkg; k++) fprintf(v, "%s\t%s\n", m->pkg[k].id, m->pkg[k].name); fclose(v); }
+            char src[320], cmd[900];
+            bg_src(m, src, sizeof src);
+            unlink(WORK "/splash");
+            if (*src && snprintf(cmd, sizeof cmd, "[ -f '%s/openmpc-pm-splash' ] && cp '%s/openmpc-pm-splash' '" WORK "/splash.new' && chmod 755 '" WORK "/splash.new' && "
+                                 "mv '" WORK "/splash.new' '" WORK "/splash'", src, src) < (int)sizeof cmd)
+                sh(cmd);
+        }
         if (m->dev->vst2) {   /* MPC OS 3.10.1: the folder copier / plugin.json writer (tools/vst2_migrate.sh), run while MPC is stopped */
             FILE *v = fopen(WORK "/vst2.sh", "w");
             if (v) { fputs(VST2_MIGRATE_SH, v); fclose(v); }
             else err = "vst2.sh could not be written";
         }
         if (!err && m->migrate)   /* first, so an update below finds (and upgrades) the VST2 copy with the user's files in it */
-            fprintf(f, "echo '-- move to VST2 Plugins'\nif sh '" WORK "/vst2.sh' --apply; then echo 'move-to-vst2|ok|move' >> \"$RES\"; "
+            fprintf(f, "echo '-- move to VST2 Plugins'\nprogress move '' ''\nif sh '" WORK "/vst2.sh' --apply; then echo 'move-to-vst2|ok|move' >> \"$RES\"; "
                        "else echo 'move-to-vst2|fail|not every plugin could be copied to VST2 Plugins (" WORK "/apply.log)' >> \"$RES\"; fi\n");
         if (!err && m->nregq) {   /* LOCATIONS: add each drive's Synths folder to MPC.settings (CRLF kept); item() snapshots the settings for a rollback */
             FILE *a = fopen(WORK "/loc_add.awk", "w");
@@ -3021,13 +3088,15 @@ static void prepare(mgr_t *m, pkg_t *q) {
         }
         if (theme_dirty(m)) {   /* MPC is stopped: copy the wanted skin over "Plugin Skins" (staged, then swapped; the old one goes last) */
             const char *w = m->theme ? "light" : "dark";
-            fprintf(f, "echo '-- theme %s'\nT='%s'\nrm -rf \"$T/.skin.new\" \"$T/.skin.old\" && cp -a \"$T/Plugin Skins.%s\" \"$T/.skin.new\" && "
+            fprintf(f, "echo '-- theme %s'\nT='%s'\nprogress theme '' ''; jot \"begin${TAB}theme$TAB$T${TAB}theme\"\nrm -rf \"$T/.skin.new\" \"$T/.skin.old\" && cp -a \"$T/Plugin Skins.%s\" \"$T/.skin.new\" && "
                        "mv \"$T/Plugin Skins\" \"$T/.skin.old\" && mv \"$T/.skin.new\" \"$T/Plugin Skins\" && rm -rf \"$T/.skin.old\" && "
-                       "true\n", w, m->own, w);
+                       "true\njot \"end${TAB}theme\"\n", w, m->own, w);
         }
         /* MPC's skin image cache (a RAM disk only a reboot empties) grows ~400 MB per MPC start and, full, makes skins draw black (Live III, 2026-10-28).
          * MPC is stopped here, so nothing has the files open: empty it before MPC starts again, so the manager's own restarts do not fill it. */
         fprintf(f, "if ! pidof MPC >/dev/null; then rm -f /var/volatile/tmp/filmstrips/temp_*.img 2>/dev/null; echo '-- image cache emptied'; fi\n"
+                   "progress start '' ''; rm -f \"$J\"; sync\n"
+                   "[ -n \"$SPL\" ] && sleep 1; splash_stop   # \"Starting MPC\" stays on the screen until MPC draws its own\n"
                    "pidof MPC >/dev/null || systemctl start acvs\nrm -f \"$0\"\necho \"== done $(date)\"\n");
         fclose(f);
     }

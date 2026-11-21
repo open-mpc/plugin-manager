@@ -24,7 +24,8 @@ for d in "$here"/build/skin/*/; do
     echo "themes in $d: $(du -sh "$d/Plugin Skins.dark" | cut -f1) dark, $(du -sh "$d/Plugin Skins.light" | cut -f1) light"
 done
 
-# Background-server payload (Gen2 only): the daemon binary + the launcher .so + the SIGNED device script, in vst/build/bgserver-aarch64/.
+# Background-server payload (Gen2 only): the daemon binary + the launcher .so + the SIGNED device script (+ the update screen,
+# openmpc-pm-splash, which apply.sh copies out and runs whether or not the background server is on), in vst/build/bgserver-aarch64/.
 # A local aarch64 build also copies it into each plugin folder (bgserver/), so the SETTINGS "Background server" toggle can install it; a
 # release (arch "all") does not: the skin folder is shared by the armv7 and aarch64 zips, so the release workflow adds the folder to the
 # aarch64 zip only (extra_aarch64 in plugin-manager.yml). The .ini's checksum covers the .lua only (daemon/README.md), is committed, and
@@ -40,6 +41,8 @@ if [ "$arch" = aarch64 ] || [ "$arch" = all ]; then
             strip daemon/device-script/openmpc_pm_launch.so'
         rm -rf "$bgout"; mkdir -p "$bgout"
         cp "$here/build/daemon/openmpc-pm-daemon" "$ds/openmpc_pm_launch.so" "$ds/openmpc_pm_launch.lua" "$ds/openmpc_pm_launch.ini" "$bgout/"
+        "$here/build_splash.sh" aarch64   # the update screen apply.sh shows while MPC is stopped (src/splash.c)
+        cp "$here/build/splash/openmpc-pm-splash" "$bgout/"
         echo "bgserver payload in $bgout: $(ls "$bgout" | tr '\n' ' ')"
         if [ "$arch" = aarch64 ]; then
             for d in "$here"/build/skin/*/; do rm -rf "$d/bgserver"; cp -r "$bgout" "$d/bgserver"; done
@@ -56,6 +59,8 @@ if [ "$arch" = armv7 ] || [ "$arch" = all ]; then
     bgout="$here/build/bgserver-gen1"
     rm -rf "$bgout"; mkdir -p "$bgout"
     cp "$here/build/daemon/openmpc-pm-daemon-armv7" "$bgout/openmpc-pm-daemon"
+    "$here/build_splash.sh" armv7
+    cp "$here/build/splash/openmpc-pm-splash-armv7" "$bgout/openmpc-pm-splash"
     echo "bgserver payload in $bgout: $(ls "$bgout" | tr '\n' ' ')"
     if [ "$arch" = armv7 ]; then
         for d in "$here"/build/skin/*/; do rm -rf "$d/bgserver-gen1"; cp -r "$bgout" "$d/bgserver-gen1"; done

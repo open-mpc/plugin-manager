@@ -377,7 +377,7 @@ int main(int argc, char **argv) {
   if (argc > 2 && !strcmp(argv[1], "one")) {   /* queue the effect called argv[2] and APPLY: the prepare step's verdict */
     if (argc > 4) set("tab", argv[4]);
     set("kind", argc > 3 ? argv[3] : "2");
-    for (int p = 0, done = 0; p < 2 && !done; p++) {   /* the effects run to two pages now */
+    for (int p = 0, done = 0; p < 4 && !done; p++) {   /* the effects run to three pages now */
     for (int r = 1; r <= 5; r++) {
       char k[32];
       snprintf(k, sizeof k, "card%d_1", r);

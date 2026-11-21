@@ -77,6 +77,12 @@ def pkg(name, files, date):
                                   "url": base + os.path.basename(zp), "channel": "stable", "date": date, "yanked": False}]})
 FAIL_SH = ('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -t ] && T=$2; shift; done\n'
            'mkdir -p "$T/Faily dir" && echo partial > "$T/Faily dir/partial" && echo "disk full" && exit 3\n')
+# a package whose installer stages its new folder beside the old one (as every install.sh since 2026-09-29) and then hangs: the tests cut
+# the apply off there (a power cut) and check the next start puts things right
+SLOW_SH = ('#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -t ] && T=$2; shift; done\n'
+           'STAGE="$T/.Slowy dir.new"; mkdir -p "$STAGE" && echo new > "$STAGE/new" && sleep 60\n')
+pkg("Slowy", [("Slowy-1.0.0/install.sh", SLOW_SH), ("Slowy-1.0.0/uninstall.sh", "#!/bin/sh\nexit 0\n"),
+              ("Slowy-1.0.0/mpc-plugin.json", '{"folder": "portable/Slowy dir", "arch": "armv7"}\n')], "2025-02-15")
 pkg("Faily", [("Faily-1.0.0/install.sh", FAIL_SH), ("Faily-1.0.0/uninstall.sh", "#!/bin/sh\nexit 0\n"),
               ("Faily-1.0.0/mpc-plugin.json", '{"folder": "portable/Faily dir", "arch": "armv7"}\n')], "2025-03-01")
 pkg("Wrongarch", [("Wrongarch-1.0.0/install.sh", "#!/bin/sh\nexit 0\n"), ("Wrongarch-1.0.0/uninstall.sh", "#!/bin/sh\nexit 0\n"),

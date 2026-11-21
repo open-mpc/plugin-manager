@@ -162,6 +162,13 @@ function draw() {
   const st = $('st');
   st.textContent = S.problem || S.status;
   st.className = S.problem || S.status_kind == 2 ? 'e' : '';
+  if (S.apply) {   // MPC is stopped and its screen is dark while apply.sh runs: say what it is doing (step, of, act, id, version)
+    const [n, of, act, id, ver] = S.apply.split('\t'), p = S.plugins.find(x => x.id == id), name = p ? p.name : id;
+    const what = act == 'install' ? `Installing ${name} ${ver}` : act == 'remove' ? `Removing ${name}` : act == 'register' ? `Registering ${name}`
+      : act == 'theme' ? 'Switching the theme' : act == 'move' ? 'Moving plugins to VST2 Plugins' : act == 'start' ? 'Starting MPC' : 'Working';
+    st.textContent = `${what} (step ${n} of ${of}). Don't switch the MPC off; it starts again by itself when this is done.`;
+    st.className = '';
+  }
   $('mv').innerHTML = S.move ? `<div class="mv r"><span class="t"><b>${S.move} plugins need moving</b> so MPC OS 3.10.1 lists them.
     Your projects and ROMs are kept.</span><button class="${S.migrate ? 'q' : 'p'}" onclick="api('/api/migrate?on=${S.migrate ? 0 : 1}')">${S.migrate ? 'Queued: cancel' : 'Move'}</button></div>` : '';
   $('pg').innerHTML = S.downloading ? `<div class="pg"><i style="width:${Math.round(S.progress * 100)}%"></i></div>` : '';

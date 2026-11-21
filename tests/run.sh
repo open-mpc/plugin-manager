@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Offline tests in the gcc:12 Docker image (needs network: they read the live catalog and download one zip).
-#   ONLY=<section> tests/run.sh   one section (ONLY=devices:2/4: a quarter of the fake devices, as CI runs them) (devices addins links regress vst2 pick theme safety arch web) in a minute or two; no ONLY: everything (about 9 minutes)
+#   ONLY=<section> tests/run.sh   one section (ONLY=devices:2/4: a quarter of the fake devices, as CI runs them) (devices addins links regress vst2 pick theme safety arch web splash) in a minute or two; no ONLY: everything (about 9 minutes)
 #   tests/run.sh            the wrapper host test, each fake device in tests/devices/, then the addin flow against
 #                           an offline fixture (tests/fixture.py: three addin packages and a file:// catalog)
 # A fake device is a shell script that builds the device's files inside the container: MPC.settings (the real format,
@@ -14,7 +14,7 @@ MPC_VST="$MV" python3 "$here/tests/fixture.py"
 docker run --rm -e ONLY -e TRACE -e DEV -v "$here":/p -v "$MV":/mv:ro -w /p gcc:12 bash -c '
 set -eo pipefail; [ -z "$TRACE" ] || set -x
 SAN="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1"
-want() { [ -z "$ONLY" ] || [ "${ONLY%%:*}" = "$1" ]; }   # ONLY=devices:2/4 runs every 4th fake device from the 2nd (CI shards)   # ONLY=safety: just that section (devices, addins, links, pick, theme, safety, arch, web)
+want() { [ -z "$ONLY" ] || [ "${ONLY%%:*}" = "$1" ]; }   # ONLY=devices:2/4 runs every 4th fake device from the 2nd (CI shards)   # ONLY=safety: just that section (devices, addins, links, pick, theme, safety, arch, web, splash)
 export PM_TAPMS=40   # the double-tap window, short (FS_ANY builds only)
 export PM_GLIBC=2.39   # a Gen2 / MPC OS 3.x glibc: the container has 2.36, which reads as OS 2.x and refused the live catalog packages (a 120 s wait per device)
 gcc $SAN -std=gnu11 -w -Ivst/build src/manager.c /mv/tools/host_test.c /mv/wrapper/vst2_wrap.c -lpthread -ldl -lm -o /tmp/host_test
@@ -455,6 +455,58 @@ mv "$T/Faily dir" "$T/.pm-snap-faily"
 PM_SNAP_KB=0 sh /tmp/openmpc-pm/apply.sh
 grep -q "^faily|fail|an earlier update was cut off and left an incomplete safety copy" /tmp/openmpc-pm/result && [ -f "$T/.pm-snap-faily/old" ] || { echo "FAIL: incomplete safety copy"; exit 1; }
 rm -rf "$T/.pm-snap-faily" "$T/Faily dir"
+# the update screen (src/splash.c): copied out of the plugin folder with the names, started once MPC is stopped, stopped before MPC starts
+mkdir -p /tmp/splashown/bgserver-gen1
+printf "#!/bin/sh\necho \"splash: up \$1 \$2\"\ntrap \"echo splash: stopped; exit 0\" TERM\nwhile :; do sleep 0.2; done\n" > /tmp/splashown/bgserver-gen1/openmpc-pm-splash
+chmod +x /tmp/splashown/bgserver-gen1/openmpc-pm-splash
+cp /usr/bin/systemctl /tmp/systemctl.keep; printf "#!/bin/sh\necho \"systemctl \$*\"\n" > /usr/bin/systemctl
+rm -rf /tmp/openmpc-pm; PM_BG_GEN1=1 PM_OWN=/tmp/splashown /tmp/drive_addins one Faily > /dev/null
+[ -x /tmp/openmpc-pm/splash ] && grep -q "^faily$(printf "\t")Faily$" /tmp/openmpc-pm/names || { ls -la /tmp/openmpc-pm; echo "FAIL: the update screen was not copied out"; exit 1; }
+mkdir -p "$T/Faily dir" && echo old > "$T/Faily dir/old"; rm -rf "$T/Faily dir/partial"
+sh /tmp/openmpc-pm/apply.sh
+grep -E "^(splash|systemctl)" /tmp/openmpc-pm/apply.log | tr "\n" "," > /tmp/splash-order
+grep -qx "systemctl stop acvs,splash: up /tmp/openmpc-pm/progress /tmp/openmpc-pm/names,splash: stopped,systemctl start acvs," /tmp/splash-order || { cat /tmp/splash-order; echo; echo "FAIL: the update screen must run only while MPC is stopped"; exit 1; }
+cp /tmp/systemctl.keep /usr/bin/systemctl; rm -rf /tmp/splashown "$T/Faily dir"
+# a finished apply leaves no journal
+JR="$(find /media /data -name MPC.settings 2>/dev/null | head -n 1 | sed "s:/Settings/.*::")/.openmpcpm-journal" || true
+[ ! -e "$JR" ] || { cat "$JR"; ls -la "$(dirname "$JR")"; echo "FAIL: a finished apply left its journal"; exit 1; }
+# roadmap item 1: an apply cut off while the installer works (a power cut). The journal stays; the next start removes the installer'"'"'s
+# half-made folder, keeps the old one, and says the update did not finish
+rm -rf /tmp/openmpc-pm; /tmp/drive_addins one Slowy > /dev/null
+mkdir -p "$T/Slowy dir"; echo old > "$T/Slowy dir/old"
+PM_SNAP_KB=0 setsid sh /tmp/openmpc-pm/apply.sh & AP=$!
+for i in $(seq 100); do [ -f "$T/.Slowy dir.new/new" ] && break; sleep 0.1; done
+[ -f "$T/.Slowy dir.new/new" ] || { cat /tmp/openmpc-pm/apply.log; echo "FAIL: the slow installer never started"; exit 1; }
+kill -9 -- -$AP; wait $AP 2>/dev/null || true
+grep -q "^begin$(printf '"'"'\t'"'"')slowy" "$JR" && [ -f "$T/Slowy dir/old" ] || { cat "$JR"; echo "FAIL: no journal of the cut-off step"; exit 1; }
+! grep -q "safety copy" /tmp/openmpc-pm/apply.log || { echo "FAIL: a big folder with a staging installer was copied"; exit 1; }   # item 2
+tr '"'"'\t'"'"' '"'"' '"'"' < /tmp/openmpc-pm/progress | grep -qx "1 .* install slowy 1.0.0" || { cat /tmp/openmpc-pm/progress; echo "FAIL: progress"; exit 1; }    # item 3
+rm -f /tmp/openmpc-pm/result /tmp/openmpc-pm/result.seen
+/tmp/drive_addins status > /tmp/safe-cut.out
+grep -qF "The last update did not finish. Slowy: interrupted (was the MPC switched off?): its folder is in place" /tmp/safe-cut.out || { cat /tmp/safe-cut.out; exit 1; }
+[ ! -e "$JR" ] && [ ! -e "$T/.Slowy dir.new" ] && [ -f "$T/Slowy dir/old" ] || { echo "FAIL: the cut-off apply was not put right"; exit 1; }
+rm -rf "$T/Slowy dir"
+# recover.sh on its own, one crash state each (it is what the Manager runs at start and apply.sh runs first)
+R=/tmp/rec; rm -rf $R; mkdir -p "$R/V"; RS=/p/src/recover.sh; TB=$(printf '"'"'\t'"'"')
+rec() { : > $R/res; printf '"'"'pid\t999999\n'"'"' > $R/j; for l in "$@"; do printf '"'"'%s\n'"'"' "$l" >> $R/j; done; sh $RS $R/j $R/res > $R/out; }
+mkdir -p "$R/V/.A.old"; echo '"'"'{"version": "1.0"}'"'"' > "$R/V/.A.old/mpc-plugin.json"   # cut between the installer'"'"'s two renames
+rec "begin${TB}a${TB}$R/V/A${TB}install"
+[ -f "$R/V/A/mpc-plugin.json" ] && grep -qF "a|fail|interrupted (was the MPC switched off?): put back as it was, now 1.0" $R/res && [ ! -e $R/j ] || { cat $R/res; echo "FAIL: recover mid-swap"; exit 1; }
+rm -rf "$R/V/A"; mkdir -p "$R/V/.pm-snap-b" "$R/V/.pm-failed-b"; : > "$R/V/.pm-snap-b.done"; echo s > "$R/V/.pm-snap-b/s"   # cut during a rollback
+rec "begin${TB}b${TB}$R/V/B${TB}install"
+[ -f "$R/V/B/s" ] && [ ! -e "$R/V/.pm-failed-b" ] && [ ! -e "$R/V/.pm-snap-b.done" ] || { echo "FAIL: recover from the safety copy"; exit 1; }
+mkdir -p "$R/V/.pm-snap-c"   # an incomplete copy and no folder: kept, said
+rec "begin${TB}c${TB}$R/V/C${TB}install"
+[ -d "$R/V/.pm-snap-c" ] && grep -qF "c|fail|interrupted: its folder is missing; an incomplete copy is at $R/V/.pm-snap-c" $R/res || { cat $R/res; echo "FAIL: incomplete copy"; exit 1; }
+mkdir -p "$R/M/.skin.old"   # cut during the theme swap: the skin goes back
+rec "begin${TB}theme${TB}$R/M${TB}theme"
+[ -d "$R/M/Plugin Skins" ] && [ ! -e "$R/M/.skin.old" ] || { echo "FAIL: recover the skin"; exit 1; }
+mkdir -p "$R/V/.D.old"; rec "begin${TB}d${TB}$R/V/D${TB}install" "end${TB}d"   # a step that ended is left alone
+[ -d "$R/V/.D.old" ] && [ ! -s $R/res ] || { echo "FAIL: an ended step was touched"; exit 1; }
+printf '"'"'#!/bin/sh\nsleep 30\n'"'"' > $R/apply.sh; sh $R/apply.sh & LP=$!   # the apply.sh that wrote the journal still runs: nothing done
+printf '"'"'pid\t%s\nbegin\te\t%s\tinstall\n'"'"' $LP "$R/V/E" > $R/j; mkdir -p "$R/V/.E.old"; sh $RS $R/j $R/res | grep -q "still running"
+kill $LP; [ -f $R/j ] && [ -d "$R/V/.E.old" ] || { echo "FAIL: recovered under a running apply"; exit 1; }
+rm -rf $R
 rm -rf /tmp/openmpc-pm; /tmp/drive_addins one Faily > /dev/null
 mkdir -p "$T/Faily dir"; echo old > "$T/Faily dir/old"; cp "$T/Faily dir/old" /tmp/old.keep
 sh /tmp/openmpc-pm/apply.sh
@@ -557,6 +609,17 @@ rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir 
 sh tests/devices/mpc-one.sh && sh tests/addins.sh && /tmp/drive_addins web > /tmp/web.out
 grep -q "Content-Type: application/json" /tmp/web.out
 grep -q "\"plugins\":\[{\"id\":" /tmp/web.out
+grep -qF "\"apply\":\"\"" /tmp/web.out   # no apply under way
+# roadmap item 3: while apply.sh runs (MPC stopped, its screen dark), the page says which step it is on, from apply.sh'"'"'s progress file
+printf '"'"'#!/bin/sh\nsleep 30\n'"'"' > /tmp/apply.sh; sh /tmp/apply.sh & AP=$!
+mkdir -p /tmp/openmpc-pm; printf '"'"'pid\t%s\n'"'"' $AP > /media/az01-internal/.openmpcpm-journal
+printf '"'"'2\t5\tinstall\talpha-addin\t0.1.0\n'"'"' > /tmp/openmpc-pm/progress
+/tmp/drive_addins web > /tmp/web-apply.out 2>&1 || true
+kill $AP
+grep -qF "\"apply\":\"2\\u00095\\u0009install\\u0009alpha-addin\\u00090.1.0\"" /tmp/web-apply.out || { grep -o "\"apply\":\"[^\"]*\"" /tmp/web-apply.out; echo "FAIL: apply progress"; exit 1; }
+[ -f /media/az01-internal/.openmpcpm-journal ] || { echo "FAIL: the journal of a running apply was recovered"; exit 1; }
+rm -f /media/az01-internal/.openmpcpm-journal /tmp/openmpc-pm/progress
+grep -qF "if (S.apply)" /p/src/web_page.h
 PM_MODEL="Akai Professional MPC Live III" /tmp/drive_addins web > /tmp/web-live3.out 2>&1 || true
 grep -q "\"id\":\"alpha-addin\"" /tmp/web-live3.out && ! grep -q "\"id\":\"sample-only\"" /tmp/web-live3.out || { echo "the web page must hide an entry made for another MPC"; exit 1; }
 grep -q "\"id\":\"sample-only\"" /tmp/web.out   # an unknown model hides nothing
@@ -591,4 +654,65 @@ grep -q "^bad folder" /tmp/webfiles.out && grep -q "^that file name cannot be us
 [ ! -e "$P/x.bin" ] && [ ! -e "$P/evil.bin" ] && [ -z "$(ls -A "$P/roms")" ]   # nothing escaped, the delete removed the file
 echo "web OK"
 fi # web
+if want splash; then
+echo "-- update screen (src/splash.c): frames, rotation, no display"
+gcc $SAN -std=gnu11 -Wall -Werror -Isrc src/splash.c -o /tmp/splash
+cc -std=gnu11 -include src/splash_drm.h -x c - -o /tmp/drmchk <<EOC   # our struct layouts and ioctl numbers == the kernel headers
+#include <stdio.h>
+#define P(n) printf("%lx\\n", (unsigned long)n);
+int main(void) { P(DRM_IOCTL_MODE_GETRESOURCES) P(DRM_IOCTL_MODE_SETCRTC) P(DRM_IOCTL_MODE_GETENCODER) P(DRM_IOCTL_MODE_GETCONNECTOR) P(DRM_IOCTL_MODE_ADDFB) P(DRM_IOCTL_MODE_RMFB) P(DRM_IOCTL_MODE_CREATE_DUMB) P(DRM_IOCTL_MODE_MAP_DUMB) P(DRM_IOCTL_MODE_DESTROY_DUMB) P(DRM_IOCTL_SET_MASTER) P(DRM_IOCTL_DROP_MASTER) return 0; }
+EOC
+/tmp/drmchk > /tmp/drm.ours
+printf "c04064a0\nc06864a2\nc01464a6\nc05064a7\nc01c64ae\nc00464af\nc02064b2\nc01064b3\nc00464b4\n641e\n641f\n" | cmp - /tmp/drm.ours
+TB=$(printf "\t"); printf "model-72${TB}Model-72\n" > /tmp/names
+/tmp/splash --ppm /tmp/l.ppm --size 1280x800 --names /tmp/names --state "2${TB}5${TB}install${TB}model-72${TB}1.0.0"
+/tmp/splash --ppm /tmp/p.ppm --names /tmp/names --state "2${TB}5${TB}install${TB}model-72${TB}1.0.0"
+python3 - <<EOP   # the portrait buffer, turned the way the panel shows it, is the landscape frame; the 90 degree rule as in force-shadow
+def ppm(f):
+    d = open(f, "rb").read(); h = d.split(b"\n", 3); w, ht = map(int, h[1].split()); return w, ht, h[3]
+lw, lh, l = ppm("/tmp/l.ppm"); pw, ph, p = ppm("/tmp/p.ppm")
+assert (lw, lh, pw, ph) == (1280, 800, 800, 1280)
+for x, y in [(0, 0), (640, 400), (100, 700), (1279, 799), (300, 90)]:
+    bx, by = y, ph - 1 - x
+    assert l[(y * lw + x) * 3:(y * lw + x) * 3 + 3] == p[(by * pw + bx) * 3:(by * pw + bx) * 3 + 3], (x, y)
+assert len(set(l[i:i + 3] for i in range(0, len(l), 3 * 97))) > 8   # text and the bar were drawn, not just a fill
+EOP
+for st in "1${TB}1${TB}remove${TB}x${TB}" "3${TB}3${TB}start${TB}${TB}" "1${TB}2${TB}register${TB}loc-0${TB}" "9${TB}2${TB}theme${TB}${TB}" "x" "0" "1${TB}0${TB}move${TB}${TB}" "1${TB}1${TB}install${TB}$(head -c 300 /dev/zero | tr "\0" W)${TB}1"; do
+  /tmp/splash --ppm /tmp/x.ppm --state "$st"
+done
+! /tmp/splash --ppm /tmp/x.ppm --size 10x10 2>/dev/null
+# Gen2: frames go to Akai'"'"'s splash as PNGs, always with --drop (it lets go of the display at once, so MPC can start at any time)
+rm -rf /tmp/sp; mkdir -p /tmp/sp; : > /tmp/sp/sock
+printf "#!/bin/sh\necho \"\$*\" >> /tmp/sp/ctl.log\n" > /tmp/sp/ctl; chmod +x /tmp/sp/ctl
+printf "1${TB}2${TB}install${TB}model-72${TB}1.0.0\n" > /tmp/sp/progress
+export PM_SPLASHCTL=/tmp/sp/ctl PM_SPLASH_SOCK=/tmp/sp/sock
+/tmp/splash /tmp/sp/progress /tmp/names 2>/tmp/sp/err & SP=$!
+sleep 2; rm /tmp/sp/progress
+r=0; wait $SP || r=$?
+[ "$r" = 0 ] && [ "$(grep -c "^show-image --drop /tmp/sp/screen.png$" /tmp/sp/ctl.log)" -ge 3 ] && [ "$(sort -u /tmp/sp/ctl.log | wc -l)" = 1 ] || { cat /tmp/sp/err /tmp/sp/ctl.log; echo "FAIL: az0x-splash frames"; exit 1; }
+python3 - <<EOP   # a 1280x800 RGB PNG (stored deflate) whose pixels decode
+import struct, zlib
+d = open("/tmp/sp/screen.png", "rb").read(); assert d[:8] == b"\x89PNG\r\n\x1a\n"
+w, h, bd, ct = struct.unpack(">IIBB", d[16:26]); assert (w, h, bd, ct) == (1280, 800, 8, 2)
+i = d.index(b"IDAT"); n = struct.unpack(">I", d[i - 4:i])[0]; raw = zlib.decompress(d[i + 4:i + 4 + n])
+assert len(raw) == 800 * (1 + 1280 * 3) and zlib.crc32(d[i:i + 4 + n]) == struct.unpack(">I", d[i + 4 + n:i + 8 + n])[0]
+EOP
+# MPC running (an older installer may start it): not a frame drawn, and a running screen stops at once
+printf "1${TB}2${TB}install${TB}model-72${TB}1.0.0\n" > /tmp/sp/progress; : > /tmp/sp/ctl.log
+sleep 30 & SL=$!; sleep 0.2
+r=0; PM_SPLASH_MPC_EXE=$(readlink /proc/$SL/exe) /tmp/splash /tmp/sp/progress 2>/dev/null || r=$?; kill $SL; wait $SL 2>/dev/null || true
+[ "$r" = 4 ] && [ ! -s /tmp/sp/ctl.log ] || { echo "FAIL: drew while MPC runs ($r)"; exit 1; }
+PM_SPLASH_MPC_EXE=/tmp/sp/mpc /tmp/splash /tmp/sp/progress 2>/dev/null & SP=$!
+sleep 1; cp "$(readlink -f /bin/sleep)" /tmp/sp/mpc; /tmp/sp/mpc 30 & SL=$!
+for i in $(seq 30); do kill -0 $SP 2>/dev/null || break; sleep 0.1; done
+! kill -0 $SP 2>/dev/null || { kill $SP; echo "FAIL: kept drawing after MPC started"; exit 1; }
+kill $SL; wait $SL 2>/dev/null || true
+# az0x-splashctl failing: gives up (3), apply.sh carries on without a screen
+printf "#!/bin/sh\nexit 1\n" > /tmp/sp/ctl
+r=0; /tmp/splash /tmp/sp/progress 2>/dev/null || r=$?; [ "$r" = 3 ] || { echo "FAIL: a failing splashctl ($r)"; exit 1; }
+unset PM_SPLASHCTL PM_SPLASH_SOCK
+r=0; /tmp/splash /tmp/no-such-progress 2>/tmp/splash.err || r=$?
+[ "$r" = 3 ] && grep -q "card0" /tmp/splash.err   # no display (or one in use): gives up at once, apply.sh carries on
+echo "splash OK"
+fi # splash
 '
