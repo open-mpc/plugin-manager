@@ -35,8 +35,9 @@
 static int pg_get(void *inst, const char *key, char *buf, int n) { return mgr_get_param(inst, key, buf, n); }
 static void pg_set(void *inst, const char *key, const char *val) { mgr_set_param(inst, key, val); }
 
-/* Find the Manager's installed skin, the page table and the fonts (PM_PAGE_SKIN, PM_PAGE_TABLE, PM_PAGE_FONTS override
- * them), then start the page thread. Nothing happens without a page table. */
+/* Find the Manager's installed skin, the page table (<skin>/openmpc_page.txt, made by vst/gen_page.py at build time) and
+ * the fonts (PM_PAGE_SKIN, PM_PAGE_TABLE, PM_PAGE_FONTS override them), then start the page thread. Nothing happens without
+ * a page table. */
 static void page_start(void *inst) {
     const char *off = getenv("PM_PAGE");
     if (off && !strcmp(off, "0")) return;
@@ -61,7 +62,14 @@ static void page_start(void *inst) {
         snprintf(table, sizeof table, "%s/openmpc_page.txt", skin);
         if (access(table, R_OK)) snprintf(table, sizeof table, "%s/openmpc_page.txt", exedir);
     }
-    snprintf(fonts, sizeof fonts, "%s", (e = getenv("PM_PAGE_FONTS")) && *e ? e : exedir);
+    /* the fonts: next to the daemon, else in the plugin folder's bgserver/ (the release ships them there) */
+    if ((e = getenv("PM_PAGE_FONTS")) && *e) snprintf(fonts, sizeof fonts, "%s", e);
+    else {
+        char probe[700];
+        snprintf(fonts, sizeof fonts, "%s", exedir);
+        snprintf(probe, sizeof probe, "%s/TitilliumWeb-SemiBold.ttf", fonts);
+        if (access(probe, R_OK) && skin[0]) snprintf(fonts, sizeof fonts, "%s/../bgserver", skin);
+    }
     page_engine_t eng = {inst, pg_get, pg_set};
     if (!skin[0] || access(table, R_OK) || page_load(table, skin, fonts, eng)) {
         fprintf(stderr, "openmpc-pm-daemon: no mode-slot page (skin \"%s\", table %s, fonts %s)\n", skin, table, fonts);

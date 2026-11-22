@@ -22,6 +22,10 @@ for d in "$here"/build/skin/*/; do
     echo light > "$d/Plugin Skins.light/.theme"
     rm -rf "$d/Plugin Skins"; cp -a "$d/Plugin Skins.light" "$d/Plugin Skins"
     echo "themes in $d: $(du -sh "$d/Plugin Skins.dark" | cut -f1) dark, $(du -sh "$d/Plugin Skins.light" | cut -f1) light"
+    # the mode-slot page table (src/page.c), one per skin so it follows a theme switch
+    for s in "Plugin Skins" "Plugin Skins.dark" "Plugin Skins.light"; do
+        python3 "$here/gen_page.py" "$d/$s" "$here/params.json" -o "$d/$s/openmpc_page.txt" 2>/dev/null
+    done
 done
 
 # Background-server payload (Gen2 only): the daemon binary + the launcher .so + the SIGNED device script (+ the update screen,
@@ -43,6 +47,7 @@ if [ "$arch" = aarch64 ] || [ "$arch" = all ]; then
         cp "$here/build/daemon/openmpc-pm-daemon" "$ds/openmpc_pm_launch.so" "$ds/openmpc_pm_launch.lua" "$ds/openmpc_pm_launch.ini" "$bgout/"
         "$here/build_splash.sh" aarch64   # the update screen apply.sh shows while MPC is stopped (src/splash.c)
         cp "$here/build/splash/openmpc-pm-splash" "$bgout/"
+        cp "$here/TitilliumWeb-SemiBold.ttf" "$here/TitilliumWeb-Bold.ttf" "$here/OFL-TitilliumWeb.txt" "$bgout/"   # the mode-slot page's text
         echo "bgserver payload in $bgout: $(ls "$bgout" | tr '\n' ' ')"
         if [ "$arch" = aarch64 ]; then
             for d in "$here"/build/skin/*/; do rm -rf "$d/bgserver"; cp -r "$bgout" "$d/bgserver"; done
