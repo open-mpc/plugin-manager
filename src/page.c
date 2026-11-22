@@ -70,6 +70,7 @@ typedef struct {
     int c0, nc, i0, ni;        /* conditions, items */
     int row;                   /* the plugin-card row it belongs to (r<n>_ / card<n>_ parameters), -1 none */
     int band;                  /* on a taller page: BAND_STAY, BAND_FOOT (moves down), BAND_FULL (stretches) */
+    int tab;                   /* the skin tab it is on (PLUGINS, LOCATIONS, ...) */
 } pcomp_t;
 enum { BAND_STAY, BAND_FOOT, BAND_FULL };
 
@@ -97,6 +98,10 @@ static struct {
     int rows_on;               /* card rows shown (and asked of the engine as "rows"), 0 before the first frame */
     int extra;                 /* rows_on - nrows */
     int foot;                  /* the skin's y where the footer starts (below the last card) */
+    int tfoot[8];              /* the same for each tab (tabs with no cards: PLUGINS' value) */
+    char tabname[8][24];       /* the skin's tabs (T lines) */
+    int ntabs, tab;            /* how many, and the one shown */
+    int tabbar;                /* the height of the page's own tab bar along the bottom (0: none, the page too short) */
     int dh;                    /* the page drawn this much taller than the skin (the mode slot at full height) */
     stbtt_fontinfo font[2];    /* SemiBold, Bold */
     unsigned char *fontdata[2];
@@ -148,6 +153,7 @@ static int key_row(int idx) {
 static void classify(void) {
     int foot = 0;
     P.nrows = 0;
+    memset(P.tfoot, 0, sizeof P.tfoot);
     for (int ci = 0; ci < P.ncomps; ci++) {
         pcomp_t *c = &P.comps[ci];
         c->row = key_row(c->param);
@@ -155,12 +161,16 @@ static void classify(void) {
         if (c->row >= 0) {
             if (c->row + 1 > P.nrows) P.nrows = c->row + 1;
             if (c->y + c->h > foot) foot = c->y + c->h;
+            if (c->y + c->h > P.tfoot[c->tab & 7]) P.tfoot[c->tab & 7] = c->y + c->h;
         }
     }
+    for (int t = 0; t < 8; t++)
+        if (!P.tfoot[t]) P.tfoot[t] = foot;
     int top0 = 1 << 30, top1 = 1 << 30;
     for (int ci = 0; ci < P.ncomps; ci++) {
         pcomp_t *c = &P.comps[ci];
-        c->band = c->h >= P.h ? BAND_FULL : c->row < 0 && foot > 0 && c->y >= foot ? BAND_FOOT : BAND_STAY;
+        int tf = P.tfoot[c->tab & 7];
+        c->band = c->h >= P.h ? BAND_FULL : c->row < 0 && tf > 0 && c->y >= tf ? BAND_FOOT : BAND_STAY;
         if (c->row == 0 && c->y < top0) top0 = c->y;
         if (c->row == 1 && c->y < top1) top1 = c->y;
     }
@@ -244,16 +254,17 @@ static void blit(uint8_t *fb, int W, int H, const pimage_t *im, int x, int y, in
 /* A full-page picture (the background, with the header drawn in) on a taller page: not stretched but cut at the
  * footer; the top part where it was, the footer part moved down, the gap filled with the row above the cut. */
 static void blit_page(uint8_t *fb, int W, int H, const pimage_t *im, int x, int y, int w, int h) {
-    if (!im || P.dh <= 0 || P.foot <= 0 || P.foot >= h || im->h != h) { blit(fb, W, H, im, x, y, w, h); return; }
+    int foot = P.tfoot[P.tab & 7];
+    if (!im || P.dh <= 0 || foot <= 0 || foot >= h || im->h != h) { blit(fb, W, H, im, x, y, w, h); return; }
     pimage_t top = *im, fill = *im, bot = *im;
-    top.h = P.foot;
+    top.h = foot;
     fill.h = 1;
-    fill.rgba = im->rgba + (size_t)(P.foot - 1) * (size_t)im->w * 4;
-    bot.h = im->h - P.foot;
-    bot.rgba = im->rgba + (size_t)P.foot * (size_t)im->w * 4;
+    fill.rgba = im->rgba + (size_t)(foot - 1) * (size_t)im->w * 4;
+    bot.h = im->h - foot;
+    bot.rgba = im->rgba + (size_t)foot * (size_t)im->w * 4;
     blit(fb, W, H, &top, x, y, w, top.h);
-    blit(fb, W, H, &fill, x, y + P.foot, w, P.dh);
-    blit(fb, W, H, &bot, x, y + P.foot + P.dh, w, bot.h);
+    blit(fb, W, H, &fill, x, y + foot, w, P.dh);
+    blit(fb, W, H, &bot, x, y + foot + P.dh, w, bot.h);
 }
 
 /* Load the page table (vst/gen_page.py's openmpc_page.txt), the skin images from img_dir and the fonts from font_dir.
@@ -270,10 +281,19 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
     if (!f) return -1;
     char line[2048];
     pcomp_t *cur = NULL;
+    int tab = 0;   /* the tab being read (T lines) */
     while (fgets(line, sizeof line, f)) {
         line[strcspn(line, "\r\n")] = 0;
         char a[700], b[700];
         if (line[0] == 'S') sscanf(line, "S %d %d", &P.w, &P.h);
+        else if (line[0] == 'T') {   /* a tab: the components up to the next T are its own */
+            char name[24] = "";
+            if (sscanf(line, "T %d %23s", &tab, name) >= 1 && tab >= 0 && tab < 8) {
+                snprintf(P.tabname[tab], sizeof P.tabname[tab], "%s", name);
+                if (tab + 1 > P.ntabs) P.ntabs = tab + 1;
+            } else tab = 0;
+            cur = NULL;
+        }
         else if (line[0] == 'P') {
             pparam_t p = {0};
             char opts[1500] = "";
@@ -299,6 +319,7 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
             cur = &P.comps[P.ncomps++];
             *cur = (pcomp_t){0};
             sscanf(line, "C %d %d %d %d %d %d", &cur->x, &cur->y, &cur->w, &cur->h, &cur->param, &cur->tap);
+            cur->tab = tab;
             cur->c0 = P.nconds;
             cur->i0 = P.nitems;
         } else if (line[0] == 'W' && cur) {
@@ -306,8 +327,9 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
             sscanf(line, "W %d %d", &P.conds[P.nconds][0], &P.conds[P.nconds][1]);
             P.nconds++;
             cur->nc++;
-        } else if (line[0] == 'I' || line[0] == 'B' || line[0] == 'L') {
+        } else if (line[0] == 'I' || line[0] == 'B' || line[0] == 'L' || line[0] == 'F') {
             pitem_t it = {0};
+            if (line[0] == 'F') { cur = NULL; line[0] = 'I'; }   /* a free-standing image */
             it.img = it.img_on = -1;
             if (line[0] == 'I') {
                 it.type = IT_IMAGE;
@@ -329,7 +351,7 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
             }
             if (!cur) {   /* a free-standing image: a component of its own with no conditions */
                 P.comps = xrealloc(P.comps, (size_t)(P.ncomps + 1) * sizeof *P.comps);
-                P.comps[P.ncomps] = (pcomp_t){it.x, it.y, it.w, it.h, -1, 0, P.nconds, 0, P.nitems, 1, -1, BAND_STAY};
+                P.comps[P.ncomps] = (pcomp_t){it.x, it.y, it.w, it.h, -1, 0, P.nconds, 0, P.nitems, 1, -1, BAND_STAY, tab};
                 P.ncomps++;
                 it.x = it.y = 0;
             } else cur->ni++;
@@ -370,6 +392,7 @@ static uint64_t read_state(void) {
 }
 
 static int comp_shown(const pcomp_t *c) {
+    if (c->tab != P.tab) return 0;
     if (c->row >= P.nrows + P.extra) return 0;   /* an added card row the page is too short for */
     for (int k = 0; k < c->nc; k++) {
         pparam_t *p = param_of(P.conds[c->c0 + k][0]);
@@ -518,11 +541,46 @@ static void draw_text(uint8_t *fb, int W, int H, const pitem_t *it, int ox, int 
 }
 
 /* Draw the page into fb (W x H, RGB); the page is drawn at its own size from the top left, the rest left black. */
+#define TABBAR_H 62    /* MPC's tab strip: 62 px along the bottom of the screen */
+#define TAB_W 213      /* six slots across 1280 */
+
+static void fill_rect(uint8_t *fb, int W, int H, int x0, int y0, int x1, int y1, uint32_t rgb) {
+    for (int y = y0 < 0 ? 0 : y0; y < y1 && y < H; y++)
+        for (int x = x0 < 0 ? 0 : x0; x < x1 && x < W; x++) {
+            uint8_t *d = fb + ((size_t)y * (size_t)W + (size_t)x) * 3;
+            d[0] = (uint8_t)(rgb >> 16); d[1] = (uint8_t)(rgb >> 8); d[2] = (uint8_t)rgb;
+        }
+}
+
+/* The skin's tabs along the bottom, as MPC draws a plugin's: a bar over each (lit over the one shown), its name below. */
+static void draw_tabbar(uint8_t *fb, int W, int H, int y0) {
+    fill_rect(fb, W, H, 0, y0, W, H, 0x000000);
+    for (int t = 0; t < P.ntabs && t < 6; t++) {
+        int cx = TAB_W * t + TAB_W / 2;
+        fill_rect(fb, W, H, cx - 90, y0 + 1, cx + 90, y0 + 7, t == P.tab ? 0xe8304a : 0x2c2c2c);
+        pitem_t it = {0};
+        it.type = IT_LABEL;
+        it.x = TAB_W * t; it.y = 8; it.w = TAB_W; it.h = TABBAR_H - 8;
+        it.height = 29; it.colour = 0xffffffff; it.just = 1;   /* MPC's tab labels: about 15 px capitals */
+        char name[24];
+        snprintf(name, sizeof name, "%s", P.tabname[t]);
+        for (char *q = name; *q; q++) if (*q == '_') *q = ' ';
+        draw_text(fb, W, H, &it, 0, y0, name);
+    }
+}
+
+/* The page is H tall: the skin's tab (stretched as above) and, if there is room, the tab bar under it. */
+static int content_h(int H) {
+    P.tabbar = P.ntabs > 1 && H - P.h >= TABBAR_H ? TABBAR_H : 0;
+    return H - P.tabbar;
+}
+
 static void page_render(uint8_t *fb, int W, int H) {
     memset(fb, 0, (size_t)W * (size_t)H * 3);
     if (!P.ok) return;
     P.frame++;
-    P.dh = H - P.h;
+    int Hc = content_h(H);
+    P.dh = Hc - P.h;
     set_rows(P.dh);
     read_state();
     for (int ci = 0; ci < P.ncomps; ci++) {
@@ -540,15 +598,22 @@ static void page_render(uint8_t *fb, int W, int H) {
                 if (c->band == BAND_FULL && it->h >= P.h) blit_page(fb, W, H, image(i), c->x + it->x, cy + it->y, it->w, it->h);
                 else blit(fb, W, H, image(i), c->x + it->x, cy + it->y, it->w, it->h);
             } else if (it->type == IT_LABEL && p && p->text[0])
-                draw_text(fb, W, H, it, c->x, cy, p->text);
+                draw_text(fb, W, Hc, it, c->x, cy, p->text);
         }
     }
+    if (P.tabbar) draw_tabbar(fb, W, H, Hc);
     evict();
 }
 
 /* A tap at x,y (page pixels): the topmost shown button there sets its parameter as MPC would. 1 if one did. */
 static int page_tap(int x, int y) {
     if (!P.ok) return 0;
+    if (P.tabbar && y >= P.h + P.dh) {   /* the tab bar */
+        int t = x / TAB_W;
+        if (t < 0 || t >= P.ntabs || t >= 6 || t == P.tab) return 0;
+        P.tab = t;
+        return 1;
+    }
     read_state();
     for (int ci = P.ncomps - 1; ci >= 0; ci--) {
         const pcomp_t *c = &P.comps[ci];

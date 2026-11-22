@@ -5,10 +5,11 @@ The modeslot addin (mpc-vst-plugins tools/mpc_patch/modeslot) turns an unused MP
 process draws. The daemon draws the Manager there (src/page.c) the way MPC draws the skin: the same components,
 images and live text, from this table instead of the 11 MB TUI.json.
 
-  gen_page.py <skin dir> <params.json> [-o <skin dir>/openmpc_page.txt] [--tab 0]
+  gen_page.py <skin dir> <params.json> [-o <skin dir>/openmpc_page.txt] [--tab N]   (default: every tab)
 
 Output, one item per line, space-separated, strings last (they may hold spaces):
-  S <w> <h>                                     page size (the tab's initialSize)
+  S <w> <h>                                     page size (the first tab's initialSize)
+  T <index> <name>                              a tab: the components after it, up to the next T, are its own
   P <index> <kind> <key> [<opt>|<opt>|...]      a parameter the page uses; kind m (momentary), o (options),
                                                 t (text from the engine), n (number)
   C <x> <y> <w> <h> <param|-1> <tap 0|1>        a component (absolute bounds); its items follow:
@@ -17,7 +18,7 @@ Output, one item per line, space-separated, strings last (they may hold spaces):
   B <x> <y> <w> <h> <buttonId> <inGroup> <off> <on>   a button: off image, or on image while its group's option is
                                                   buttonId (inGroup > 1); "-" for none
   L <x> <y> <w> <h> <height> <aarrggbb> <just> <style>  the parameter's value text (just: left|right|centred)
-  I lines before any C are free-standing images, absolute.
+  F <x> <y> <w> <h> <image>                     a free-standing image (absolute), a component of its own
 Standard library only."""
 import argparse
 import json
@@ -56,17 +57,30 @@ def main():
     ap.add_argument("skin")
     ap.add_argument("params")
     ap.add_argument("-o")
-    ap.add_argument("--tab", type=int, default=0)
+    ap.add_argument("--tab", type=int, default=-1)
     a = ap.parse_args()
     t = json.load(open(os.path.join(a.skin, "TUI.json")))["pageData"]
     defs = {d["key"]: d["value"] for d in t["componentDefinitions"]["localComponentDefinitions"]}
-    tab = t["tabs"][a.tab]
-    page = tab["componentDefinition"] if "componentDefinition" in tab else defs[tab["componentName"]]
     plist = json.load(open(a.params))["params"]
+    tabs = list(enumerate(t["tabs"]))
+    if a.tab >= 0:
+        tabs = [tabs[a.tab]]
 
     lines, used = [], set()
-    w, h = [int(round(float(v))) for v in tab["initialSize"].split()[2:4]]
+    w, h = [int(round(float(v))) for v in tabs[0][1]["initialSize"].split()[2:4]]
     lines.append("S %d %d" % (w, h))
+    for ti, tab in tabs:
+        if " " in tab["tabName"] or not tab["tabName"]:
+            name = tab["tabName"].replace(" ", "_") or "TAB%d" % ti
+        else:
+            name = tab["tabName"]
+        lines.append("T %d %s" % (ti, name))
+        page = tab["componentDefinition"] if "componentDefinition" in tab else defs[tab["componentName"]]
+        add_page(page, defs, lines, used)
+    emit(a, plist, lines, used)
+
+
+def add_page(page, defs, lines, used):
     for c in page["componentsData"]:
         cd = c["componentData"]
         x, y, cw, ch = xywh(c["bounds"])
@@ -79,7 +93,7 @@ def main():
                 lines += ["W %d %d" % pc for pc in conds]
                 lines.append("I 0 0 %d %d %s" % (cw, ch, cd["data"]["image"]))
             else:
-                lines.append("I %d %d %d %d %s" % (x, y, cw, ch, cd["data"]["image"]))
+                lines.append("F %d %d %d %d %s" % (x, y, cw, ch, cd["data"]["image"]))
             continue
         d = defs[cd["type"]]
         p = comp_param(c)
@@ -110,6 +124,9 @@ def main():
         lines.append("C %d %d %d %d %d %d" % (x, y, cw, ch, p, tap))
         lines += ["W %d %d" % pc for pc in conds]
         lines += items
+
+
+def emit(a, plist, lines, used):
     plines = []
     for i in sorted(used):
         if i >= len(plist):

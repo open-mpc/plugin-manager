@@ -1,6 +1,6 @@
 /* Offline check of src/page.c: draws the mode-slot page from a built skin with a stand-in engine.
  *
- *   [PAGE_H=738] page_test <skin dir> <font dir> <out.png> [key=value ...] [tap=X,Y ...]     (the table: <skin dir>/openmpc_page.txt)
+ *   [PAGE_H=800] page_test <skin dir> <font dir> <out.png> [key=value ...] [tap=X,Y ...] [tab=N]     (the table: <skin dir>/openmpc_page.txt)
  *
  * key=value sets what the stand-in engine answers for a parameter (an option's label or index, a text); taps are
  * replayed in order and every parameter they set is printed ("set key=value"), then the page is drawn.
@@ -34,11 +34,14 @@ int main(int argc, char **argv) {
     snprintf(table, sizeof table, "%s/openmpc_page.txt", argv[1]);
     if (page_load(table, argv[1], argv[2], eng)) { fprintf(stderr, "page_load failed\n"); return 1; }
     printf("page %dx%d: %d components, %d items, %d parameters, %d images\n", P.w, P.h, P.ncomps, P.nitems, P.nparams, P.nimgs);
-    if (getenv("PAGE_H") && atoi(getenv("PAGE_H")) > P.h && atoi(getenv("PAGE_H")) <= 800) P.dh = atoi(getenv("PAGE_H")) - P.h;
+    int H = getenv("PAGE_H") ? atoi(getenv("PAGE_H")) : P.h;   /* the page the mode slot gives (taller at full height) */
+    if (H < P.h || H > 800) H = P.h;
+    P.dh = content_h(H) - P.h;
     set_rows(P.dh);   /* the rows a page this tall shows (taps need them before the first frame) */
     for (int i = 4; i < argc; i++) {
         int x, y;
         if (sscanf(argv[i], "tap=%d,%d", &x, &y) == 2) printf("tap %d,%d: %s\n", x, y, page_tap(x, y) ? "acted" : "nothing");
+        else if (sscanf(argv[i], "tab=%d", &x) == 1) P.tab = x;   /* show this skin tab */
         else {
             char *eq = strchr(argv[i], '=');
             if (!eq || nkv >= 512) continue;
@@ -51,8 +54,6 @@ int main(int argc, char **argv) {
     static uint8_t fb[1280 * 800 * 3];
     struct timespec a, b;
     clock_gettime(CLOCK_MONOTONIC, &a);
-    int H = getenv("PAGE_H") ? atoi(getenv("PAGE_H")) : P.h;   /* the page the mode slot gives (taller at full height) */
-    if (H < P.h || H > 800) H = P.h;
     page_render(fb, P.w, H);
     clock_gettime(CLOCK_MONOTONIC, &b);
     printf("rendered %dx%d in %.1f ms (%zu MB of images decoded)\n", P.w, H, (b.tv_sec - a.tv_sec) * 1e3 + (b.tv_nsec - a.tv_nsec) / 1e6, P.decoded >> 20);
