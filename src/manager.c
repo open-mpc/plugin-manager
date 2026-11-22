@@ -1761,9 +1761,14 @@ static int bg_stale(const mgr_t *m) {
     return sh(cmd) == 0;
 }
 
+/* The Plugin Manager app (an addin: the mode slot plus this daemon, modeslot/app) runs the background server itself, in the
+ * same unit; while it is installed this plugin leaves the server alone: one daemon only (port 8790, one work folder). */
+#define APP_DIR "/data/mpc-addins/pm-app"
+static int app_installed(void) { return access(APP_DIR "/openmpc-pm-daemon", X_OK) == 0; }
+
 static void bg_heal(mgr_t *m) {
     static int tried;
-    if (tried || !bg_stale(m)) return;
+    if (tried || app_installed() || !bg_stale(m)) return;
     tried = 1;
     int rc = bg_install(m);
     logf_("background server: the installed daemon differs from this plugin's: reinstalled (exit %d)", rc);
@@ -3955,7 +3960,9 @@ static void mgr_set_param(void *inst, const char *key, const char *val) {
         m->web_pref = !m->web_pref;
         cfg_save(m);
     } else if (!strcmp(key, "set_bgsrv_btn")) {   /* SETTINGS: install/remove the always-on background server (Gen2) */
-        if (!m->bg_avail)
+        if (app_installed())
+            say_locked(m, WARN, "The Plugin Manager app runs the background server: remove the app to use this plugin's");
+        else if (!m->bg_avail)
             say_locked(m, ERR, "This build ships no background server payload");
         else if (m->bg_on) {
             int rc = bg_uninstall(m);
@@ -4186,7 +4193,8 @@ static int mgr_get_param(void *inst, const char *key, char *b, int n) {
     }
     else if (!strcmp(key, "set_web_txt")) snprintf(b, n, "%s%s", m->web_pref ? "ON" : "OFF", m->web_pref != m->web_on ? "  \xc2\xb7  restart" : "");
     else if (!strcmp(key, "set_bgsrv_txt")) {
-        if (!m->bg_avail) snprintf(b, n, "not in this build");
+        if (app_installed()) snprintf(b, n, "run by the Plugin Manager app");
+        else if (!m->bg_avail) snprintf(b, n, "not in this build");
         else if (!m->bg_on) snprintf(b, n, "OFF");
         else snprintf(b, n, "ON%s", m->bg_run ? "  \xc2\xb7  running" : "  \xc2\xb7  starts at boot");
     }
