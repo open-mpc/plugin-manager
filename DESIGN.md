@@ -376,3 +376,23 @@ screen, 1280×800. The background daemon serves that page (`src/page.c`, started
   [tap=X,Y] [tab=N]`.
 - **Still to do.** Pages that open from a card (the details) and the keyboard are drawn as the skin has them but
   are untested in the slot; the Q-Links and the data wheel do nothing there.
+
+## The Plugin Manager app (an addin; 2026-11-23, offline, device test pending)
+The whole Manager without the plugin, for people who want it as a MENU mode rather than a track plugin: one addin,
+`Plugin-Manager-App-<version>-mpc-aarch64.zip` (`modeslot/package_app.sh`, id `pm-app`, about 12 MB). It holds the mode slot
+(`modeslot.so`), its own copy of the daemon (engine, web page on :8790, the slot's page), the skin as one tar, the fonts and
+`pm-app-start.sh`.
+- **Start.** MPC loads the addin at its start; the shim then runs `pm-app-start.sh` (detached). The script unpacks the skin
+  into `/run/openmpc-pm-app` (once per boot, or after an update) and starts the daemon in the background-server unit
+  (`openmpc-pm-daemon`). No device script, no signing.
+- **One daemon.** The plugin's background server uses the same unit, port and work folder. The app wins: its script stops
+  another daemon in the unit, the plugin (2.1.0 and later) does not heal or install its own while `/data/mpc-addins/pm-app`
+  is there, and SETTINGS says the app runs the server. An older plugin with its server on would put its own daemon back when
+  loaded.
+- **Reboots.** Like every addin on MPC OS 3.10, it needs Addin Restore to load again after a reboot. The catalog can't yet
+  make an addin install a patch (`also_installs` is between patches; addin `depends` names plugins and addins), so INSTALL.md
+  says so. To do: let an addin's catalog entry install a patch first (engine + catalog), then list the app with Addin
+  Restore as a dependency.
+- **Catalog.** Listed in the add-in section as an alternative to the plugin; it conflicts with the Mode Slot addin (the same
+  slot), which stays for other apps that want to draw the page.
+- **Limits.** Gen2, MPC 3.10.1 (the shim's firmware profile); one skin (light), so no theme switch.
