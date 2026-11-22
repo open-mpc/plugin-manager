@@ -447,29 +447,57 @@ static float font_scale(const stbtt_fontinfo *f, float height) {
     return height / (float)(asc - desc);
 }
 
-static void draw_text(uint8_t *fb, int W, int H, const pitem_t *it, int ox, int oy, const char *text) {
-    const stbtt_fontinfo *f = &P.font[it->bold ? 1 : 0];
-    float sc = font_scale(f, it->height);   /* a JUCE font height: ascent to descent (Titillium: 1.52 x the em size) */
-    int asc, desc, gap;
-    stbtt_GetFontVMetrics(f, &asc, &desc, &gap);
-    /* width first, for alignment */
+static float text_width(const stbtt_fontinfo *f, float sc, const char *text, const char *stop) {
     float width = 0;
-    for (const char *s = text; *s;) {
+    for (const char *s = text; *s && (!stop || s < stop);) {
         uint32_t c = utf8_next(&s);
         int adv, lsb;
         stbtt_GetCodepointHMetrics(f, (int)c, &adv, &lsb);
         width += adv * sc;
     }
+    return width;
+}
+
+/* A label's text as a JUCE Label draws it: squeezed sideways down to 70 % if it is too wide, then cut short with an
+ * ellipsis; never past its box. */
+static void draw_text(uint8_t *fb, int W, int H, const pitem_t *it, int ox, int oy, const char *text) {
+    const stbtt_fontinfo *f = &P.font[it->bold ? 1 : 0];
+    float sc = font_scale(f, it->height);   /* a JUCE font height: ascent to descent (Titillium: 1.52 x the em size) */
+    int asc, desc, gap;
+    stbtt_GetFontVMetrics(f, &asc, &desc, &gap);
+    float box = (float)it->w, width = text_width(f, sc, text, NULL), hs = 1;
+    char cut[200];
+    if (width > box && box > 0) {
+        hs = box / width;
+        if (hs < 0.7f) {   /* still too wide at 70 %: as much as fits, then "..." */
+            hs = 0.7f;
+            float ell = text_width(f, sc * hs, "...", NULL);
+            const char *s = text, *last = text;
+            while (*s) {
+                utf8_next(&s);
+                if (text_width(f, sc * hs, text, s) + ell > box) break;
+                last = s;
+            }
+            size_t n = (size_t)(last - text);
+            if (n > sizeof cut - 4) n = sizeof cut - 4;
+            while (n > 0 && text[n - 1] == ' ') n--;
+            memcpy(cut, text, n);
+            memcpy(cut + n, "...", 4);
+            text = cut;
+        }
+        width = text_width(f, sc * hs, text, NULL);
+    }
     float x = (float)(ox + it->x);
     if (it->just == 2) x += it->w - width;
     else if (it->just == 1) x += (it->w - width) / 2;
     float base = oy + it->y + (it->h + (asc + desc) * sc) / 2;
+    int x0 = ox + it->x, x1 = ox + it->x + it->w;
     uint8_t cr = (uint8_t)(it->colour >> 16), cg = (uint8_t)(it->colour >> 8), cb = (uint8_t)it->colour;
     for (const char *s = text; *s;) {
         uint32_t c = utf8_next(&s);
         int adv, lsb, gw, gh, gx, gy;
         stbtt_GetCodepointHMetrics(f, (int)c, &adv, &lsb);
-        unsigned char *bm = stbtt_GetCodepointBitmapSubpixel(f, sc, sc, x - (int)x, 0, (int)c, &gw, &gh, &gx, &gy);
+        unsigned char *bm = stbtt_GetCodepointBitmapSubpixel(f, sc * hs, sc, x - (int)x, 0, (int)c, &gw, &gh, &gx, &gy);
         int px0 = (int)x + gx, py0 = (int)base + gy;
         for (int j = 0; bm && j < gh; j++) {
             int fy = py0 + j;
@@ -477,7 +505,7 @@ static void draw_text(uint8_t *fb, int W, int H, const pitem_t *it, int ox, int 
             for (int i = 0; i < gw; i++) {
                 int fx = px0 + i;
                 unsigned a = bm[j * gw + i];
-                if (!a || fx < 0 || fx >= W) continue;
+                if (!a || fx < 0 || fx >= W || fx < x0 - 1 || fx > x1) continue;
                 uint8_t *d = fb + ((size_t)fy * (size_t)W + (size_t)fx) * 3;
                 d[0] = (uint8_t)((cr * a + d[0] * (255 - a)) / 255);
                 d[1] = (uint8_t)((cg * a + d[1] * (255 - a)) / 255);
@@ -485,7 +513,7 @@ static void draw_text(uint8_t *fb, int W, int H, const pitem_t *it, int ox, int 
             }
         }
         if (bm) stbtt_FreeBitmap(bm, NULL);
-        x += adv * sc;
+        x += adv * sc * hs;
     }
 }
 
