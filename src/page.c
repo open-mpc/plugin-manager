@@ -72,7 +72,7 @@ typedef struct {
     int band;                  /* on a taller page: BAND_STAY, BAND_FOOT (moves down), BAND_FULL (stretches) */
     int tab;                   /* the skin tab it is on (PLUGINS, LOCATIONS, ...) */
 } pcomp_t;
-enum { BAND_STAY, BAND_FOOT, BAND_FULL };
+enum { BAND_STAY, BAND_FOOT, BAND_FULL, BAND_PANEL };   /* PANEL: a big panel ending at the footer (the details): grows */
 
 typedef struct {
     char *name;
@@ -171,6 +171,9 @@ static void classify(void) {
         pcomp_t *c = &P.comps[ci];
         int tf = P.tfoot[c->tab & 7];
         c->band = c->h >= P.h ? BAND_FULL : c->row < 0 && tf > 0 && c->y >= tf ? BAND_FOOT : BAND_STAY;
+        if (c->band == BAND_STAY && c->row < 0 && c->nc > 0 && c->w >= 1000 && c->h >= 300 && tf > 0 &&
+            c->y + c->h >= tf - 40 && c->y + c->h <= tf + 10)
+            c->band = BAND_PANEL;
         if (c->row == 0 && c->y < top0) top0 = c->y;
         if (c->row == 1 && c->y < top1) top1 = c->y;
     }
@@ -199,30 +202,38 @@ static int row_param(int idx, int src, int dst) {
     return p.idx;
 }
 
-/* One more card row: a copy of the skin's last one, a pitch further down, on the next row's parameters. */
+/* One more card row: a copy of the skin's last one, a pitch further down, on the next row's parameters. Each copy goes
+ * right after the component it copies, so it stacks as that one does (under the details, the menus, the keyboard). */
 static void add_row(void) {
-    int src = P.nrows - 1, dst = P.nbuilt, n0 = P.ncomps;
+    int src = P.nrows - 1, dst = P.nbuilt, n0 = P.ncomps, n = 0;
+    for (int ci = 0; ci < n0; ci++) n += P.comps[ci].row == src;
+    pcomp_t *out = xrealloc(NULL, (size_t)(n0 + n) * sizeof *out);
+    int k = 0;
     for (int ci = 0; ci < n0; ci++) {
-        if (P.comps[ci].row != src) continue;
-        pcomp_t d = P.comps[ci];
+        pcomp_t c = P.comps[ci];
+        out[k++] = c;
+        if (c.row != src) continue;
+        pcomp_t d = c;
         d.y += (dst - src) * P.pitch;
         d.row = dst;
         d.param = row_param(d.param, src, dst);
         d.c0 = P.nconds;
-        for (int k = 0; k < P.comps[ci].nc; k++) {
-            int cp = P.conds[P.comps[ci].c0 + k][0], cv = P.conds[P.comps[ci].c0 + k][1];
+        for (int j = 0; j < c.nc; j++) {
+            int cp = P.conds[c.c0 + j][0], cv = P.conds[c.c0 + j][1];
             P.conds = xrealloc(P.conds, (size_t)(P.nconds + 1) * sizeof *P.conds);
             P.conds[P.nconds][0] = row_param(cp, src, dst);
             P.conds[P.nconds][1] = cv;
             P.nconds++;
         }
         d.i0 = P.nitems;
-        P.items = xrealloc(P.items, (size_t)(P.nitems + P.comps[ci].ni) * sizeof *P.items);
-        memcpy(P.items + P.nitems, P.items + P.comps[ci].i0, (size_t)P.comps[ci].ni * sizeof *P.items);
-        P.nitems += P.comps[ci].ni;
-        P.comps = xrealloc(P.comps, (size_t)(P.ncomps + 1) * sizeof *P.comps);
-        P.comps[P.ncomps++] = d;
+        P.items = xrealloc(P.items, (size_t)(P.nitems + c.ni) * sizeof *P.items);
+        memcpy(P.items + P.nitems, P.items + c.i0, (size_t)c.ni * sizeof *P.items);
+        P.nitems += c.ni;
+        out[k++] = d;
     }
+    free(P.comps);
+    P.comps = out;
+    P.ncomps = k;
     P.nbuilt++;
 }
 
@@ -249,22 +260,48 @@ static int comp_dy(const pcomp_t *c) {
     if (c->row >= 0 && rows > 0) return spread * (2 * c->row + 1) / (2 * rows);
     return c->band == BAND_FOOT ? P.dh : 0;
 }
-static int stretch(const pcomp_t *c, int h) { return c->band == BAND_FULL && h >= P.h ? h + (P.dh > 0 ? P.dh : 0) : h; }
+static int stretch(const pcomp_t *c, int h) {   /* a component's height on the page (for taps) */
+    return (c->band == BAND_FULL && h >= P.h) || c->band == BAND_PANEL ? h + (P.dh > 0 ? P.dh : 0) : h;
+}
 static void blit(uint8_t *fb, int W, int H, const pimage_t *im, int x, int y, int w, int h);
 /* A full-page picture (the background, with the header drawn in) on a taller page: not stretched but cut at the
  * footer; the top part where it was, the footer part moved down, the gap filled with the row above the cut. */
-static void blit_page(uint8_t *fb, int W, int H, const pimage_t *im, int x, int y, int w, int h) {
-    int foot = P.tfoot[P.tab & 7];
-    if (!im || P.dh <= 0 || foot <= 0 || foot >= h || im->h != h) { blit(fb, W, H, im, x, y, w, h); return; }
+/* A picture drawn taller by grow px without stretching: rows above cut where they were, the rest moved down by grow,
+ * the gap filled with the row above the cut (a flat stretch of background in these skins). */
+static void blit_cut(uint8_t *fb, int W, int H, const pimage_t *im, int x, int y, int w, int h, int cut, int grow) {
+    if (!im || grow <= 0 || cut <= 0 || cut >= h || im->h != h) { blit(fb, W, H, im, x, y, w, h); return; }
     pimage_t top = *im, fill = *im, bot = *im;
-    top.h = foot;
+    top.h = cut;
     fill.h = 1;
-    fill.rgba = im->rgba + (size_t)(foot - 1) * (size_t)im->w * 4;
-    bot.h = im->h - foot;
-    bot.rgba = im->rgba + (size_t)foot * (size_t)im->w * 4;
+    fill.rgba = im->rgba + (size_t)(cut - 1) * (size_t)im->w * 4;
+    bot.h = im->h - cut;
+    bot.rgba = im->rgba + (size_t)cut * (size_t)im->w * 4;
     blit(fb, W, H, &top, x, y, w, top.h);
-    blit(fb, W, H, &fill, x, y + foot, w, P.dh);
-    blit(fb, W, H, &bot, x, y + foot + P.dh, w, bot.h);
+    blit(fb, W, H, &fill, x, y + cut, w, grow);
+    blit(fb, W, H, &bot, x, y + cut + grow, w, bot.h);
+}
+
+/* A full-page picture (the background, with the header drawn in) on a taller page: cut at the footer. */
+static void blit_page(uint8_t *fb, int W, int H, const pimage_t *im, int x, int y, int w, int h) {
+    blit_cut(fb, W, H, im, x, y, w, h, P.tfoot[P.tab & 7], P.dh);
+}
+
+/* Where a panel picture can grow: the lowest row that repeats the one above it (inside the bottom padding), so what is
+ * drawn in the panel keeps its place; the middle if there is none. */
+static int flat_row(const pimage_t *im) {
+    if (!im || !im->rgba || im->h < 4) return im ? im->h / 2 : 0;
+    size_t stride = (size_t)im->w * 4;
+    for (int r = im->h - 2; r > im->h / 2; r--)   /* three alike: a straight run, not a rounded corner */
+        if (!memcmp(im->rgba + (size_t)r * stride, im->rgba + (size_t)(r - 1) * stride, stride) &&
+            !memcmp(im->rgba + (size_t)r * stride, im->rgba + (size_t)(r - 2) * stride, stride)) return r;
+    return im->h / 2;
+}
+
+/* A component's picture: the page background and big panels (BAND_PANEL: the details) grow with the page. */
+static void blit_item(uint8_t *fb, int W, int H, const pcomp_t *c, const pimage_t *im, int x, int y, int w, int h) {
+    if (c->band == BAND_FULL && h >= P.h) blit_page(fb, W, H, im, x, y, w, h);
+    else if (c->band == BAND_PANEL && h >= c->h - 4) blit_cut(fb, W, H, im, x, y, w, h, flat_row(im), P.dh);
+    else blit(fb, W, H, im, x, y, w, h);
 }
 
 /* Load the page table (vst/gen_page.py's openmpc_page.txt), the skin images from img_dir and the fonts from font_dir.
@@ -590,13 +627,11 @@ static void page_render(uint8_t *fb, int W, int H) {
         int cy = c->y + comp_dy(c);
         for (int k = 0; k < c->ni; k++) {
             const pitem_t *it = &P.items[c->i0 + k];
-            if (it->type == IT_IMAGE && c->band == BAND_FULL && it->h >= P.h) blit_page(fb, W, H, image(it->img), c->x + it->x, cy + it->y, it->w, it->h);
-            else if (it->type == IT_IMAGE) blit(fb, W, H, image(it->img), c->x + it->x, cy + it->y, it->w, it->h);
+            if (it->type == IT_IMAGE) blit_item(fb, W, H, c, image(it->img), c->x + it->x, cy + it->y, it->w, it->h);
             else if (it->type == IT_BUTTON) {
                 int on = it->ngroup > 1 && p && p->kind == PK_OPTIONS && p->opt == it->bid;
                 int i = on && it->img_on >= 0 ? it->img_on : it->img;
-                if (c->band == BAND_FULL && it->h >= P.h) blit_page(fb, W, H, image(i), c->x + it->x, cy + it->y, it->w, it->h);
-                else blit(fb, W, H, image(i), c->x + it->x, cy + it->y, it->w, it->h);
+                blit_item(fb, W, H, c, image(i), c->x + it->x, cy + it->y, it->w, it->h);
             } else if (it->type == IT_LABEL && p && p->text[0])
                 draw_text(fb, W, Hc, it, c->x, cy, p->text);
         }
