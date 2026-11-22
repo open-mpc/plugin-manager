@@ -8,7 +8,7 @@ works; this one is only a plain test card.
 """
 import sys
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 W, H = 1280, 800
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -23,8 +23,12 @@ def icon(out, logo=None):
         src = Image.open(logo).convert("RGB")
         for corner in ((0, 0), (src.width - 1, 0), (0, src.height - 1), (src.width - 1, src.height - 1)):
             ImageDraw.floodfill(src, corner, (255, 0, 255), thresh=60)   # the white around the rounded square
+        r, g, b = src.split()
+        magenta = ImageChops.multiply(ImageChops.multiply(r.point(lambda v: 255 if v == 255 else 0),
+                                                          g.point(lambda v: 255 if v == 0 else 0)),
+                                      b.point(lambda v: 255 if v == 255 else 0))
         rgba = src.convert("RGBA")
-        rgba.putdata([(0, 0, 0, 0) if p[:3] == (255, 0, 255) else p for p in list(rgba.getdata())])
+        rgba.putalpha(ImageChops.invert(magenta))
         mark = rgba.convert("RGBa").resize((64, 64), Image.LANCZOS).convert("RGBA")   # premultiplied: no white fringe
         img.alpha_composite(mark, (3, 3))
     else:
