@@ -368,8 +368,8 @@ screen, 1280×800. The background daemon serves that page (`src/page.c`, started
   draws its images, buttons and live value text from the daemon's engine. Text is Titillium Web (OFL), shipped in
   `bgserver/`; labels fit their box as a JUCE Label's do. Taps set parameters as MPC does (momentary "1" then "0",
   options by index).
-- **The taller page.** The skin is 1280×628. Below 1280×690 the page is the skin as is. With 62 px or more to spare the page draws its own tab
-  bar along the bottom (MPC's six 213 px slots), and the rest of the height goes to PLUGINS: one more card row per 84 px
+- **The taller page.** The skin is 1280×628. With 62 px or more to spare (690 px and up) the page draws its own tab
+  bar along the bottom (with less, only the first tab, PLUGINS, can be shown) (MPC's six 213 px slots), and the rest of the height goes to PLUGINS: one more card row per 84 px
   (copies of the last row on `r6_`/`card6_` parameters; the daemon's own engine instance is told `rows=6`, the plugin's
   stays at 5), the rest shared between the rows, the footer moved to the bottom, full-page pictures cut at the footer.
 - **Offline check.** `tests/page_test.c` renders it: `PAGE_H=800 page_test <skin dir> <font dir> out.png [key=value ...]
