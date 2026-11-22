@@ -75,7 +75,7 @@ typedef struct {
 #endif
 /* The version of this build, shown on the ABOUT page. The release workflow fails when its version input differs from this. */
 #ifndef PM_VERSION
-#define PM_VERSION "2.0.0"
+#define PM_VERSION "2.1.0"
 #endif
 #define WORK "/tmp/openmpc-pm"
 #define MAXPKG 1024   /* cards kept: the catalog (272 plugins on 2026-11-17), then local zips and unregistered folders; what does not fit is logged */
