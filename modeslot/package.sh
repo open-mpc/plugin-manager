@@ -16,6 +16,6 @@ trap 'rm -rf "$STAGE"' EXIT
 cp addin/addin.manifest src/modeslot.so "$STAGE/"
 python3 make_page.py "$STAGE/page.png" >/dev/null
 python3 make_page.py --icon "$STAGE/icon.png" addin/openmpc-logo.png >/dev/null
-python3 "$MPC_VST/tools/release_addin.py" --dir "$STAGE" --version "$VERSION" --license MIT \
+python3 "$MPC_VST/tools/release_addin.py" --dir "$STAGE" --version "$VERSION" --license MIT --repo open-mpc/plugin-manager \
     --about "Turns MPC's unused mode slot 0x2090 into a \"Plugin Manager\" MENU tile: the Open MPC Plugin Manager, full screen (Gen2, MPC 3.10.1 only)." \
     -o "$OUT"
