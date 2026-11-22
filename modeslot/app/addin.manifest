@@ -1,0 +1,8 @@
+ADDIN_ID=pm-app
+ADDIN_NAME="Plugin Manager App"
+ADDIN_SO=modeslot.so
+ADDIN_CONF=""
+ADDIN_FILES="openmpc-pm-daemon pm-app-start.sh pm-skin.tar TitilliumWeb-SemiBold.ttf TitilliumWeb-Bold.ttf OFL-TitilliumWeb.txt page.png icon.png"
+ADDIN_NETWORK=1
+ADDIN_WEB_PORT=8790
+ADDIN_DONE="MENU now has a Plugin Manager tile (official Gen2 MPC 3.10.1 only; see journalctl -u acvs | grep -e modeslot -e pm-app). The web page is on port 8790. Install Addin Restore too (PATCHES in the Plugin Manager), or the app is gone after a reboot until this installer is run again. Remove the Mode Slot addin first if it is installed."
