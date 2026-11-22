@@ -35,6 +35,7 @@ int main(int argc, char **argv) {
     if (page_load(table, argv[1], argv[2], eng)) { fprintf(stderr, "page_load failed\n"); return 1; }
     printf("page %dx%d: %d components, %d items, %d parameters, %d images\n", P.w, P.h, P.ncomps, P.nitems, P.nparams, P.nimgs);
     if (getenv("PAGE_H") && atoi(getenv("PAGE_H")) > P.h && atoi(getenv("PAGE_H")) <= 800) P.dh = atoi(getenv("PAGE_H")) - P.h;
+    set_rows(P.dh);   /* the rows a page this tall shows (taps need them before the first frame) */
     for (int i = 4; i < argc; i++) {
         int x, y;
         if (sscanf(argv[i], "tap=%d,%d", &x, &y) == 2) printf("tap %d,%d: %s\n", x, y, page_tap(x, y) ? "acted" : "nothing");

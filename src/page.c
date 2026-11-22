@@ -91,7 +91,11 @@ static struct {
     pimage_t *imgs; int nimgs;
     size_t decoded;
     unsigned frame;
-    int nrows;                 /* card rows (5) */
+    int nrows;                 /* card rows in the skin (5) */
+    int pitch;                 /* the distance between card rows (84) */
+    int nbuilt;                /* card rows the page holds: the skin's, then copies of its last row (r6_..., card6_...) */
+    int rows_on;               /* card rows shown (and asked of the engine as "rows"), 0 before the first frame */
+    int extra;                 /* rows_on - nrows */
     int foot;                  /* the skin's y where the footer starts (below the last card) */
     int dh;                    /* the page drawn this much taller than the skin (the mode slot at full height) */
     stbtt_fontinfo font[2];    /* SemiBold, Bold */
@@ -153,17 +157,86 @@ static void classify(void) {
             if (c->y + c->h > foot) foot = c->y + c->h;
         }
     }
+    int top0 = 1 << 30, top1 = 1 << 30;
     for (int ci = 0; ci < P.ncomps; ci++) {
         pcomp_t *c = &P.comps[ci];
         c->band = c->h >= P.h ? BAND_FULL : c->row < 0 && foot > 0 && c->y >= foot ? BAND_FOOT : BAND_STAY;
+        if (c->row == 0 && c->y < top0) top0 = c->y;
+        if (c->row == 1 && c->y < top1) top1 = c->y;
     }
     P.foot = foot;
+    P.pitch = P.nrows >= 2 && top1 > top0 && top1 < (1 << 30) ? top1 - top0 : 0;
+    P.nbuilt = P.nrows;
+}
+
+/* The parameter of card row dst that matches parameter idx of row src (r<src>_x -> r<dst>_x, card<src>_x -> card<dst>_x),
+ * added to the page the first time; idx itself if it is not one of row src's. */
+static int row_param(int idx, int src, int dst) {
+    if (key_row(idx) != src) return idx;
+    pparam_t p = *param_of(idx);
+    const char *rest = strchr(p.key, '_');
+    char key[48];
+    snprintf(key, sizeof key, "%s%d%s", p.key[0] == 'r' ? "r" : "card", dst + 1, rest ? rest : "");
+    for (int i = 0; i < P.nparams; i++)
+        if (!strcmp(P.params[i].key, key)) return P.params[i].idx;
+    snprintf(p.key, sizeof p.key, "%s", key);
+    p.idx = P.pmap_n;
+    p.text[0] = 0;
+    P.params = xrealloc(P.params, (size_t)(P.nparams + 1) * sizeof *P.params);
+    P.params[P.nparams++] = p;
+    P.pmap = xrealloc(P.pmap, (size_t)(P.pmap_n + 1) * sizeof *P.pmap);
+    P.pmap[P.pmap_n++] = P.nparams - 1;
+    return p.idx;
+}
+
+/* One more card row: a copy of the skin's last one, a pitch further down, on the next row's parameters. */
+static void add_row(void) {
+    int src = P.nrows - 1, dst = P.nbuilt, n0 = P.ncomps;
+    for (int ci = 0; ci < n0; ci++) {
+        if (P.comps[ci].row != src) continue;
+        pcomp_t d = P.comps[ci];
+        d.y += (dst - src) * P.pitch;
+        d.row = dst;
+        d.param = row_param(d.param, src, dst);
+        d.c0 = P.nconds;
+        for (int k = 0; k < P.comps[ci].nc; k++) {
+            int cp = P.conds[P.comps[ci].c0 + k][0], cv = P.conds[P.comps[ci].c0 + k][1];
+            P.conds = xrealloc(P.conds, (size_t)(P.nconds + 1) * sizeof *P.conds);
+            P.conds[P.nconds][0] = row_param(cp, src, dst);
+            P.conds[P.nconds][1] = cv;
+            P.nconds++;
+        }
+        d.i0 = P.nitems;
+        P.items = xrealloc(P.items, (size_t)(P.nitems + P.comps[ci].ni) * sizeof *P.items);
+        memcpy(P.items + P.nitems, P.items + P.comps[ci].i0, (size_t)P.comps[ci].ni * sizeof *P.items);
+        P.nitems += P.comps[ci].ni;
+        P.comps = xrealloc(P.comps, (size_t)(P.ncomps + 1) * sizeof *P.comps);
+        P.comps[P.ncomps++] = d;
+    }
+    P.nbuilt++;
+}
+
+/* Card rows for a page dh taller than the skin: one more per pitch of extra height (at most 9), built on first use and
+ * asked of the engine ("rows"), which then pages by that many. */
+static void set_rows(int dh) {
+    int extra = P.pitch > 0 && dh > 0 ? dh / P.pitch : 0;
+    if (P.nrows + extra > 9) extra = 9 - P.nrows;
+    if (extra < 0) extra = 0;
+    while (P.nbuilt < P.nrows + extra) add_row();
+    P.extra = extra;
+    if (P.rows_on != P.nrows + extra) {
+        char v[8];
+        P.rows_on = P.nrows + extra;
+        snprintf(v, sizeof v, "%d", P.rows_on);
+        P.eng.set(P.eng.inst, "rows", v);
+    }
 }
 
 /* Where a component is drawn on the current page: its y shift, and its height. */
 static int comp_dy(const pcomp_t *c) {
     if (P.dh <= 0) return 0;
-    if (c->row >= 0 && P.nrows > 0) return P.dh * (2 * c->row + 1) / (2 * P.nrows);
+    int rows = P.nrows + P.extra, spread = P.dh - P.extra * P.pitch;   /* what the added rows leave, shared out */
+    if (c->row >= 0 && rows > 0) return spread * (2 * c->row + 1) / (2 * rows);
     return c->band == BAND_FOOT ? P.dh : 0;
 }
 static int stretch(const pcomp_t *c, int h) { return c->band == BAND_FULL && h >= P.h ? h + (P.dh > 0 ? P.dh : 0) : h; }
@@ -297,6 +370,7 @@ static uint64_t read_state(void) {
 }
 
 static int comp_shown(const pcomp_t *c) {
+    if (c->row >= P.nrows + P.extra) return 0;   /* an added card row the page is too short for */
     for (int k = 0; k < c->nc; k++) {
         pparam_t *p = param_of(P.conds[c->c0 + k][0]);
         if ((p ? p->opt : 0) != P.conds[c->c0 + k][1]) return 0;
@@ -421,6 +495,7 @@ static void page_render(uint8_t *fb, int W, int H) {
     if (!P.ok) return;
     P.frame++;
     P.dh = H - P.h;
+    set_rows(P.dh);
     read_state();
     for (int ci = 0; ci < P.ncomps; ci++) {
         const pcomp_t *c = &P.comps[ci];
