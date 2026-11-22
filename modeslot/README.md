@@ -43,7 +43,7 @@ Six hooks. Each one checks its function's first four instructions before anythin
 
 ## Build and test (offline)
 ```
-modeslot/build.sh          # src/modeslot.so (Docker arm64v8/gcc:12-bookworm; needs GLIBC_2.17 only)
+modeslot/build.sh          # src/modeslot.so (Docker arm64v8/gcc:12-bookworm; needs GLIBC_2.34, MPC 3.10.1 has 2.39)
 modeslot/build.sh test     # aarch64 tests under qemu (Docker binfmt)
 modeslot/build.sh check <MPC binary>   # the profile against a firmware binary on disk
 python3 modeslot/make_page.py page.png; python3 modeslot/make_page.py --icon icon.png modeslot/addin/openmpc-logo.png

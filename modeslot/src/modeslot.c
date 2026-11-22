@@ -33,8 +33,10 @@
 // library constructor, before MPC starts any thread. The MPC binary has no BTI property note.
 
 #define _GNU_SOURCE
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <link.h>
+#include <sys/wait.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,8 +47,46 @@
 
 #include "modeslot.h"
 
-#define DEFAULT_PAGE_PNG "/data/mpc-addins/modeslot/page.png"
-#define DEFAULT_ICON_PNG "/data/mpc-addins/modeslot/icon.png"
+// page.png, icon.png and an app's start script sit next to this library (/data/mpc-addins/<id>/).
+#define APP_START "pm-app-start.sh"
+
+// The folder this library was loaded from ("" if unknown).
+static void so_dir(char *out, size_t n)
+{
+    Dl_info di;
+    out[0] = 0;
+    if (!dladdr((void *)so_dir, &di) || !di.dli_fname || di.dli_fname[0] != '/') return;
+    snprintf(out, n, "%s", di.dli_fname);
+    char *sl = strrchr(out, '/');
+    if (sl && sl != out) *sl = 0;
+    else out[0] = 0;
+}
+
+// An app shipped with the slot (the Plugin Manager app): run its start script, which starts the program that draws the
+// page. Fully detached (a double fork, so MPC never waits on it), and without LD_PRELOAD, so nothing it runs loads the
+// addins. Called once, from MPC's start, after the slot is installed.
+static void start_app(const char *dir)
+{
+    char script[600];
+    if (getenv("OMM_NO_APP") || !dir[0]) return;
+    snprintf(script, sizeof script, "%s/" APP_START, dir);
+    if (access(script, R_OK) != 0) return;
+    pid_t pid = fork();
+    if (pid < 0) return;
+    if (pid == 0) {
+        if (fork() == 0) {
+            setsid();
+            unsetenv("LD_PRELOAD");
+            int fd = open("/dev/null", O_RDWR);
+            if (fd >= 0) { dup2(fd, 0); if (fd > 2) close(fd); }
+            execl("/bin/sh", "sh", script, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    (void)waitpid(pid, NULL, 0);
+    fprintf(stderr, "modeslot: started %s\n", script);
+}
 #define MAX_PAGE_PNG (16u << 20)
 
 // Read by hook.S.
@@ -461,11 +501,15 @@ __attribute__((constructor)) static void omm_init(void)
     for (size_t i = 0; i < sizeof profiles / sizeof profiles[0]; i++) {
         const struct omm_profile *p = &profiles[i];
         if (p->build_id_len != len || memcmp(p->build_id, id, len) != 0) continue;
+        char dir[512], dpage[600], dicon[600];
+        so_dir(dir, sizeof dir);
+        snprintf(dpage, sizeof dpage, "%s/page.png", dir[0] ? dir : "/data/mpc-addins/modeslot");
+        snprintf(dicon, sizeof dicon, "%s/icon.png", dir[0] ? dir : "/data/mpc-addins/modeslot");
         const char *path = getenv("OMM_PAGE_PNG");
-        if (!path || !*path) path = DEFAULT_PAGE_PNG;
+        if (!path || !*path) path = dpage;
         size_t png = p->image_from_memory.addr ? omm_load_page(path) : 0;
         const char *ipath = getenv("OMM_ICON_PNG");
-        if (!ipath || !*ipath) ipath = DEFAULT_ICON_PNG;
+        if (!ipath || !*ipath) ipath = dicon;
         size_t icon = p->mode_icon.addr ? omm_load_icon(ipath) : 0;
         const char *err = omm_install(base, p, 1);
         if (err) {
@@ -477,6 +521,7 @@ __attribute__((constructor)) static void omm_init(void)
                 p->register_mode.addr ? "Main Mode" : "", png ? path : "none (placeholder)", png,
                 icon ? ipath : "none", icon);
         if (p->menu_order.addr) fprintf(stderr, "modeslot: MENU grid may hold the slot (ModeMenuPage<p>Slot<s> = \"%s\")\n", p->slot_name);
+        start_app(dir);
         return;
     }
     say("refused: unknown MPC build-id %s%s", hex, "");
