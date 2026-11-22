@@ -356,3 +356,23 @@ On the PLUGINS page Q-Link 1 scrolls the cards (`wsel`, counted in half cards so
 Unknowns to check on a Live II/III: initial focus, touch/wheel switching, that the host nudges from the value `get_param("wsel")` returns,
 and that a wheel turn is not also delivered twice. Second feature, not started: pressing the focused screenshot in the details opens a larger image.
 Future (not started): filtering by the catalog's existing tags, for example hiding plugins that need the user's own files/ROMs (`requires_user_files`).
+
+## The Manager in an MPC mode slot (2026-11-22, Live III device-tested; branch claude/pm-mode-page)
+The Mode Slot addin (mpc-vst-plugins `tools/mpc_patch/modeslot`) turns MPC's unused mode 0x2090 into an "Open MPC" MENU
+tile whose page an outside process draws: it shows `/run/openmpc-page/frame.png` and sends touches on
+`/run/openmpc-page/input.sock` (`enter`, `size W H`, `down/drag/up X Y`, `leave`). On a Live III the page is the whole
+screen, 1280×800. The background daemon serves that page (`src/page.c`, started by `page_start` in `src/daemon.c`;
+`PM_PAGE=0` turns it off), so the Manager opens from MENU without loading the plugin.
+- **What it draws.** The skin itself, as MPC would: `vst/gen_page.py` compiles every tab of the built skin and
+  `params.json` into `openmpc_page.txt` (in each `Plugin Skins*` folder, made by `vst/build_themes.sh`), and the page
+  draws its images, buttons and live value text from the daemon's engine. Text is Titillium Web (OFL), shipped in
+  `bgserver/`; labels fit their box as a JUCE Label's do. Taps set parameters as MPC does (momentary "1" then "0",
+  options by index).
+- **The taller page.** The skin is 1280×628. Below 1280×690 the page is the skin as is. With 62 px or more to spare the page draws its own tab
+  bar along the bottom (MPC's six 213 px slots), and the rest of the height goes to PLUGINS: one more card row per 84 px
+  (copies of the last row on `r6_`/`card6_` parameters; the daemon's own engine instance is told `rows=6`, the plugin's
+  stays at 5), the rest shared between the rows, the footer moved to the bottom, full-page pictures cut at the footer.
+- **Offline check.** `tests/page_test.c` renders it: `PAGE_H=800 page_test <skin dir> <font dir> out.png [key=value ...]
+  [tap=X,Y] [tab=N]`.
+- **Still to do.** Pages that open from a card (the details) and the keyboard are drawn as the skin has them but
+  are untested in the slot; the Q-Links and the data wheel do nothing there.
