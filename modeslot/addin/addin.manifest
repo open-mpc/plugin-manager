@@ -1,0 +1,6 @@
+ADDIN_ID=modeslot
+ADDIN_NAME="Mode Slot"
+ADDIN_SO=modeslot.so
+ADDIN_CONF=""
+ADDIN_FILES="page.png icon.png"
+ADDIN_DONE="MENU now has a Plugin Manager tile (official Gen2 MPC 3.10.1 only; other builds are left unchanged, see journalctl -u acvs | grep modeslot). Replace page.png (1280x800, the whole screen; shown when the Plugin Manager background server is not running) and icon.png (70x70) in /data/mpc-addins/modeslot and restart MPC to change them."

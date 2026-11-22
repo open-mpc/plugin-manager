@@ -1,0 +1,133 @@
+#ifndef MODESLOT_H
+#define MODESLOT_H
+#include <stddef.h>
+#include <stdint.h>
+
+// One hooked function: its link-time address and the four entry instructions it must have.
+struct omm_site {
+    uintptr_t addr;      // 0 = this hook is off
+    uint32_t prologue[4];
+};
+
+// MPC functions the live page host calls (resolved at install).
+struct omm_live_fns {
+    void (*repaint)(void *component);                                  // juce::Component::repaint()
+    void (*repaint_area)(void *component, uint64_t xy, uint64_t wh);   // repaint of a Rectangle<int>
+    void (*memstream_ctor)(void *stream, const void *data, size_t size, int keep_copy);
+    void (*memstream_dtor)(void *stream);
+    void *(*find_format)(void *stream);                               // ImageFileFormat::findImageFormatForStream
+    uint32_t decode_vslot;                                             // ImageFileFormat::decodeImage, vtable offset
+    uintptr_t page_component_offset;                                   // TouchDummyPage -> its juce::Component
+    void (*set_bounds)(void *component, int x, int y, int w, int h);   // juce::Component::setBounds; NULL = no full height
+    uintptr_t dummy_page_offset;                                       // touch UI (the mode handler's this) -> page holder
+    uintptr_t page_holder_field;                                       // page holder -> TouchDummyPage * at this offset
+    uintptr_t page_vtable;                                             // TouchDummyPage's vtable (absolute): checked first
+    uintptr_t wrapper_vtable;                                          // a mode's wrapper (the page's parent), absolute; 0 = keep the strip
+    int whole_screen;                                                  // also cover MPC's bottom strip (OMM_FULL_HEIGHT not 1)
+};
+
+// A function MPC calls or the shim calls, with its expected first instruction.
+struct omm_fn {
+    uintptr_t addr;
+    uint32_t first;
+};
+
+struct omm_profile {
+    const char *label;
+    uint8_t build_id[20];
+    size_t build_id_len;
+    // The slot: the first candidate that is still free, i.e. MPC's name switch and its touch page table
+    // both send it to their default case (no name, placeholder page). Halfword jump tables indexed by
+    // id - 0x2080 (table_len entries); target = table_base + 4 * (int16)entry.
+    uint32_t candidates[4];       // 0-terminated
+    const char *slot_name;
+    uintptr_t name_table, name_table_base, name_default;
+    uintptr_t page_table, page_table_base, page_default;
+    uint32_t table_len;
+
+    // 1. getModeName(ModeID) -> juce::String in x8: names the slot.
+    struct omm_site get_mode_name;
+    uintptr_t string_ctor;        // juce::String::String(const char *)
+    uint32_t string_ctor_first;   // its first instruction, as expected
+
+    // 2. registerMode(manager, ModeID, Mode *): when alias_from is registered, register the same
+    //    controller object for the slot, so its buttons work (and can leave it).
+    struct omm_site register_mode;
+    uint32_t alias_from;
+
+    // 3. The touch UI's mode-change handler (this, ModeID): records the current screen mode.
+    struct omm_site mode_changed;
+
+    // 4. juce::ImageCache::getFromMemory(data, size) -> Image in x8: while the slot is the current
+    //    mode, MPC's placeholder picture (*placeholder_ptr_var, placeholder_size bytes) is swapped
+    //    for the PNG file page_png. The placeholder page draws it, centred, as it draws its own.
+    struct omm_site image_from_memory;
+    uintptr_t placeholder_ptr_var; // address of the const char * that points at the placeholder PNG
+    uint32_t placeholder_size;
+
+    // 5. The MENU grid's icon lookup (ModeID) -> Image in x8: for the slot, if icon_png is loaded,
+    //    return it (through getFromMemory). Stock icons are 70 x 70 PNGs.
+    struct omm_site mode_icon;
+
+    // 6. ModeMenuOrder setup (order, const std::vector<ModeID> &menu_modes, settings): MPC builds the
+    //    MENU grid's pages from menu_modes, then moves each mode to the slot MPC.settings names
+    //    (ModeMenuPage<p>Slot<s>); a saved name whose mode is not in menu_modes is dropped. The hook
+    //    passes a copy with the slot appended, so a settings entry "Plugin Manager" becomes a tile.
+    struct omm_site menu_order;
+
+    // 7. Live page host (page_host.c): TouchDummyPage::paint(page, Graphics &), the page's
+    //    juce::Component vtable slots for mouseDown, mouseDrag, mouseUp (each must hold mouse_default,
+    //    JUCE's empty callback), and the MPC functions it calls.
+    struct omm_site page_paint;
+    uintptr_t mouse_slots[3];
+    uintptr_t mouse_default;
+    struct omm_fn repaint, repaint_area, memstream_ctor, memstream_dtor, find_format;
+    uint32_t decode_vslot;
+    uintptr_t page_component_offset;
+    // Full height (like Developer mode): while the slot is shown the page also covers the band above it,
+    // where other modes have their header; the bottom strip is left. set_bounds = juce::Component::setBounds
+    // (this, x, y, w, h); dummy_page_offset: where the touch UI keeps the TouchDummyPage (the handler's
+    // default case: the holder of the placeholder page); the holder keeps the TouchDummyPage * at
+    // page_holder_field (page_holder_get, its getter, is "ldr x0, [x0, #page_holder_field]"); setBounds is only
+    // called on an object whose vtable is page_vtable (page_dtor sets it). set_bounds.addr 0 = off.
+    struct omm_fn set_bounds;
+    uintptr_t dummy_page_offset, page_holder_field, page_holder_get, page_vtable, page_dtor;
+    // The whole screen: each mode's page sits in a wrapper Component (wrapper_vtable) that stops above MPC's bottom
+    // strip (1280 x 738 on a Live III); the shim stretches it to its parent's bottom while the slot is shown.
+    uintptr_t wrapper_vtable;
+};
+
+// 1 once the slot turned out to be someone else's (every hook then passes through); for the tests.
+extern uint32_t omm_yield;
+// page_host.c
+void omm_live_setup(const struct omm_live_fns *f);
+void omm_paint_hook(void *page, void *g);
+void omm_mode_hook_c(void *self, uint32_t id);
+void omm_mouse_down(void *comp, const float *ev);
+void omm_mouse_drag(void *comp, const float *ev);
+void omm_mouse_up(void *comp, const float *ev);
+void *omm_decode(const void *data, size_t size);
+void omm_send(const char *fmt, ...);
+extern void *omm_live_img;
+extern uintptr_t omm_paint_tramp_addr, omm_mode_tramp_addr;
+extern uint32_t omm_cur_mode;
+
+// The ModeMenuOrder hook body (C, standard calling convention); exposed for the tests.
+struct omm_mode_vec { uint32_t *begin, *end, *cap; };
+void omm_order_hook(void *order, const struct omm_mode_vec *modes, void *settings);
+
+// Install the hooks for a program loaded at base. Returns NULL on success, else why it refused
+// (nothing is changed when it refuses). check_segments: require the hook addresses to be in an
+// executable PT_LOAD of the main program.
+const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_segments);
+int omm_main_build_id(uintptr_t *base, uint8_t *id, size_t cap, size_t *len);
+int omm_pc_relative(uint32_t insn);
+// The first free candidate for a program loaded at base, or 0 if none is free.
+uint32_t omm_pick_slot(uintptr_t base, const struct omm_profile *p);
+// Load the slot's page picture / icon (PNG bytes); returns the size, 0 if there is none.
+size_t omm_load_page(const char *path);
+size_t omm_load_icon(const char *path);
+// The trampoline code for one hooked entry (16 words); exposed for the tests.
+void omm_fill_tramp(uint32_t *t, const uint32_t *entry_code, uintptr_t entry_addr);
+
+#endif
