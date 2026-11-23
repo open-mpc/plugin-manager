@@ -58,7 +58,7 @@ jobs:
       - name: Pillow (modeslot/make_page.py draws the page and the icon)
         run: python3 -m pip install --quiet pillow
       - name: Package the app (shim tests under qemu, then release_addin.py)
-        run: modeslot/package_app.sh dist aarch64
+        run: modeslot/package_app.sh "$PWD/dist" aarch64
       - name: Catalog conformance
         run: |
           set -e
