@@ -178,7 +178,7 @@ void *omm_decode(const void *data, size_t size)
     void *fmt = fns.find_format(stream);
     void *img = NULL;
     if (fmt) {
-        void *decode = (*(void ***)fmt)[fns.decode_vslot / 8];
+        void *decode = (*(void ***)fmt)[fns.decode_vslot / sizeof(void *)];
         omm_call_sret(decode, fmt, stream, &img);
     }
     fns.memstream_dtor(stream);

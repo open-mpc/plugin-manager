@@ -5,3 +5,4 @@ vst/params.lock
 modeslot/src/modeslot.so
 modeslot/demo/pagedemo
 modeslot/dist/
+modeslot/src/modeslot-armv7.so

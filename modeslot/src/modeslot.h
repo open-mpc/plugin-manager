@@ -160,9 +160,16 @@ void (*omm_arch_repaint_rect(uintptr_t real))(void *, int, int, int, int);
 // omm_call_sret(fn, a0, a1, out): fn(a0, a1) with its result object at out (hook.S; hooks_a32.c).
 void omm_call_sret(void *fn, void *a0, void *a1, void *out);
 // The hooks 1, 2, 4, 5 (assembly on aarch64, C on 32-bit ARM, where the result pointer is an ordinary argument).
+#if defined(__aarch64__)
 void omm_hook(void);
 void omm_reg_hook(void);
 void omm_img_hook(void);
 void omm_icon_hook(void);
+#else
+void *omm_hook(void *out, uint32_t id);                                  // getModeName
+void omm_reg_hook(void *mgr, uint32_t id, void *mode);                   // registerMode
+void *omm_img_hook(void *out, const void *data, uint32_t size);          // ImageCache::getFromMemory
+void *omm_icon_hook(void *out, uint32_t id);                             // the MENU icon lookup
+#endif
 
 #endif
