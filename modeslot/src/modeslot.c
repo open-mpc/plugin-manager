@@ -488,11 +488,16 @@ __attribute__((constructor)) static void omm_init(void)
     if (getenv("OMM_DISABLE")) return;
     if (!exe_is_mpc()) return;
 
+    // An app beside the library (the Plugin Manager app) starts whether or not the slot can be made on this firmware:
+    // without the slot it still serves its web page.
+    char dir[512];
+    so_dir(dir, sizeof dir);
     uintptr_t base;
     uint8_t id[64];
     size_t len = 0;
     if (omm_main_build_id(&base, id, sizeof id, &len) != 0) {
         say("refused: no build-id in the MPC binary%s%s", "", "");
+        start_app(dir);
         return;
     }
     char hex[2 * sizeof id + 1];
@@ -501,8 +506,7 @@ __attribute__((constructor)) static void omm_init(void)
     for (size_t i = 0; i < sizeof profiles / sizeof profiles[0]; i++) {
         const struct omm_profile *p = &profiles[i];
         if (p->build_id_len != len || memcmp(p->build_id, id, len) != 0) continue;
-        char dir[512], dpage[600], dicon[600];
-        so_dir(dir, sizeof dir);
+        char dpage[600], dicon[600];
         snprintf(dpage, sizeof dpage, "%s/page.png", dir[0] ? dir : "/data/mpc-addins/modeslot");
         snprintf(dicon, sizeof dicon, "%s/icon.png", dir[0] ? dir : "/data/mpc-addins/modeslot");
         const char *path = getenv("OMM_PAGE_PNG");
@@ -514,6 +518,7 @@ __attribute__((constructor)) static void omm_init(void)
         const char *err = omm_install(base, p, 1);
         if (err) {
             say("refused (%s): %s", hex, err);
+            start_app(dir);
             return;
         }
         fprintf(stderr, "modeslot: installed: %s, slot %#x named \"%s\"%s%s, page %s (%zu bytes), icon %s (%zu bytes)\n",
@@ -525,4 +530,5 @@ __attribute__((constructor)) static void omm_init(void)
         return;
     }
     say("refused: unknown MPC build-id %s%s", hex, "");
+    start_app(dir);
 }
