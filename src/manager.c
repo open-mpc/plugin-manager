@@ -3089,6 +3089,7 @@ static void prepare(mgr_t *m, pkg_t *q) {
             if (v) { for (int k = 0; k < m->npkg; k++) fprintf(v, "%s\t%s\n", m->pkg[k].id, m->pkg[k].name); fclose(v); }
             char src[320], cmd[900];
             bg_src(m, src, sizeof src);
+            if (!*src && m->own[0]) snprintf(src, sizeof src, "%s", m->own);   /* the Plugin Manager app: the program sits in its own folder */
             unlink(WORK "/splash");
             if (*src && snprintf(cmd, sizeof cmd, "[ -f '%s/openmpc-pm-splash' ] && cp '%s/openmpc-pm-splash' '" WORK "/splash.new' && chmod 755 '" WORK "/splash.new' && "
                                  "mv '" WORK "/splash.new' '" WORK "/splash'", src, src) < (int)sizeof cmd)

@@ -18,7 +18,7 @@ SKIN=$(ls -d ../vst/build/skin/*/"Plugin Skins" 2>/dev/null | head -n 1)
 ./build.sh
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
-cp src/modeslot.so "$DAEMON" app/pm-app-start.sh ../vst/TitilliumWeb-SemiBold.ttf ../vst/TitilliumWeb-Bold.ttf \
+cp src/modeslot.so "$DAEMON" ../vst/build/bgserver-aarch64/openmpc-pm-splash app/pm-app-start.sh ../vst/TitilliumWeb-SemiBold.ttf ../vst/TitilliumWeb-Bold.ttf \
    ../vst/OFL-TitilliumWeb.txt "$STAGE/"
 tar cf "$STAGE/pm-skin.tar" -C "$(dirname "$SKIN")" "Plugin Skins"
 python3 make_page.py "$STAGE/page.png" >/dev/null
