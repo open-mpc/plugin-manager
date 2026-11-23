@@ -1,6 +1,6 @@
 """Check modeslot's profile against an MPC binary on disk (read only; run with python3 -I).
 
-usage: python3 -I check_profile.py MPC-BINARY
+usage: python3 -I check_profile.py MPC-BINARY      (aarch64 Gen2, or 32-bit ARM Gen1 MPC / Force: check_profile_a32.py)
 
 Checks, for the profile whose build-id matches: the four entry instructions of getModeName, the
 first instruction of juce::String(const char*), that getModeName's 0x2080 jump table sends the slot
@@ -16,9 +16,12 @@ HERE = Path(__file__).resolve().parent
 
 
 def profiles():
-    src = (HERE / "src" / "modeslot.c").read_text()
+    src = (HERE / "src" / "profiles_a64.h").read_text() + (HERE / "src" / "profiles_a32.h").read_text()
     out = []
-    num = lambda blk, k: int(re.search(r"\." + k + r" = (0x[0-9a-f]+)", blk).group(1), 16)
+
+    def num(blk, k):
+        m = re.search(r"\." + k + r" = (0x[0-9a-f]+|\d+)\b", blk)
+        return int(m.group(1), 0) if m else 0   # the 32-bit profiles have no table bases
 
     def site(blk, k):
         m = re.search(r"\." + k + r" = \{(0x[0-9a-f]+), \{(.*?)\}\}", blk)
@@ -30,6 +33,9 @@ def profiles():
             "label": re.match(r'"(.*?)"', blk).group(1),
             "build_id": bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", hexes)),
             "candidates": [int(x, 16) for x in re.findall(r"0x[0-9a-f]+", re.search(r"\.candidates = \{(.*?)\}", blk).group(1)) if int(x, 16)],
+            "wrapper_vtable_raw": None,
+            "layout": {k: num(blk, k) for k in ("comp_parent", "comp_bounds", "comp_children", "comp_children_used", "img_refcount",
+                                                "page_component_offset", "decode_vslot")},
             "tables": {k: num(blk, k) for k in ("name_table", "name_table_base", "name_default", "page_table",
                                                 "page_table_base", "page_default", "table_len")},
             "sites": {k: site(blk, k) for k in ("get_mode_name", "register_mode", "mode_changed", "image_from_memory", "mode_icon", "menu_order", "page_paint")},
@@ -49,6 +55,13 @@ def profiles():
                                                                          "page_vtable", "page_dtor", "wrapper_vtable")},
         })
     return out
+
+
+def machine(path):
+    h = open(path, "rb").read(20)
+    if h[:4] != b"\x7fELF":
+        raise SystemExit("not an ELF file")
+    return h[4], struct.unpack_from("<H", h, 18)[0]
 
 
 class Elf:
@@ -141,6 +154,11 @@ def register_calls(e, target):
 def main():
     if len(sys.argv) != 2:
         raise SystemExit(__doc__)
+    cls, mach = machine(sys.argv[1])
+    if cls == 1 and mach == 40:   # 32-bit ARM: Gen1 MPC, Force
+        sys.path.insert(0, str(HERE))
+        import check_profile_a32
+        return check_profile_a32.main(sys.argv[1], profiles())
     e = Elf(sys.argv[1])
     notes = list(e.notes())
     bid = next((d for n, t, d in notes if n == b"GNU" and t == 3), None)
