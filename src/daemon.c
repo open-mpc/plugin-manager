@@ -105,5 +105,15 @@ int main(void) {
     if (!g_inst) { fprintf(stderr, "openmpc-pm-daemon: mgr_create failed\n"); return 1; }
     page_start(g_inst);
 
-    for (;;) pause();   /* the threads do all the work; stay alive until signalled */
+    /* The threads do all the work; stay alive until signalled, or until this binary is gone: the Plugin Manager app's uninstaller
+     * (or an update) removes or replaces the file while the daemon runs from it, and nothing else would stop it. */
+    for (;;) {
+        sleep(15);
+        char exe[512];
+        ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+        if (n > 0) {
+            exe[n] = 0;
+            if (strstr(exe, " (deleted)")) { fprintf(stderr, "openmpc-pm-daemon: %s is gone: exiting\n", exe); on_signal(SIGTERM); }
+        }
+    }
 }
