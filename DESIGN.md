@@ -377,7 +377,7 @@ screen, 1280×800. The background daemon serves that page (`src/page.c`, started
 - **Still to do.** Pages that open from a card (the details) and the keyboard are drawn as the skin has them but
   are untested in the slot; the Q-Links and the data wheel do nothing there.
 
-## The Plugin Manager app (an addin; 2026-11-23, offline, device test pending)
+## The Plugin Manager app (an addin; 2026-11-23, device-tested on the Live III including a reboot)
 The whole Manager without the plugin, for people who want it as a MENU mode rather than a track plugin: one addin,
 `Plugin-Manager-App-<version>-mpc-aarch64.zip` (`modeslot/package_app.sh`, id `pm-app`, about 12 MB). It holds the mode slot
 (`modeslot.so`), its own copy of the daemon (engine, web page on :8790, the slot's page), the skin as one tar, the fonts and
