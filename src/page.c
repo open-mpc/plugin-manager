@@ -316,10 +316,11 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
     if (load_font(1, path)) return -1;
     FILE *f = fopen(table, "r");
     if (!f) return -1;
-    char line[2048];
+    char *line = NULL;   /* lines of any length: an option list (r1_shot: every thumbnail) runs to thousands of characters */
+    size_t cap = 0;
     pcomp_t *cur = NULL;
     int tab = 0;   /* the tab being read (T lines) */
-    while (fgets(line, sizeof line, f)) {
+    while (getline(&line, &cap, f) >= 0) {
         line[strcspn(line, "\r\n")] = 0;
         char a[700], b[700];
         if (line[0] == 'S') sscanf(line, "S %d %d", &P.w, &P.h);
@@ -333,10 +334,11 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
         }
         else if (line[0] == 'P') {
             pparam_t p = {0};
-            char opts[1500] = "";
-            if (sscanf(line, "P %d %c %47s %1499[^\n]", &p.idx, (char *)&p.kind, p.key, opts) < 3) continue;
+            int at = 0;
+            if (sscanf(line, "P %d %c %47s %n", &p.idx, (char *)&p.kind, p.key, &at) < 3) continue;
             p.kind = (unsigned char)p.kind;
-            if (opts[0]) {
+            char *opts = at > 0 ? line + at : NULL;   /* the rest of the line, however long */
+            if (opts && opts[0]) {
                 for (char *s = strtok(opts, "|"); s; s = strtok(NULL, "|")) {
                     p.opts = xrealloc(p.opts, (size_t)(p.nopts + 1) * sizeof *p.opts);
                     p.opts[p.nopts++] = strdup(s);
@@ -396,6 +398,7 @@ static int page_load(const char *table, const char *img_dir, const char *font_di
             P.items[P.nitems++] = it;
         }
     }
+    free(line);
     fclose(f);
     P.ok = P.w > 0 && P.h > 0 && P.ncomps > 0;
     if (P.ok) classify();

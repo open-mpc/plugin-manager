@@ -34,6 +34,11 @@ int main(int argc, char **argv) {
     snprintf(table, sizeof table, "%s/openmpc_page.txt", argv[1]);
     if (page_load(table, argv[1], argv[2], eng)) { fprintf(stderr, "page_load failed\n"); return 1; }
     printf("page %dx%d: %d components, %d items, %d parameters, %d images\n", P.w, P.h, P.ncomps, P.nitems, P.nparams, P.nimgs);
+    int most = 0;   /* the longest option list read in full (r1_shot: every thumbnail; it was once cut at 1500 characters) */
+    for (int i = 0; i < P.nparams; i++)
+        if (P.params[i].nopts > P.params[most].nopts) most = i;
+    if (P.nparams) printf("longest option list: %s, %d options, the last \"%s\"\n", P.params[most].key, P.params[most].nopts,
+                          P.params[most].nopts ? P.params[most].opts[P.params[most].nopts - 1] : "");
     int H = getenv("PAGE_H") ? atoi(getenv("PAGE_H")) : P.h;   /* the page the mode slot gives (taller at full height) */
     if (H < P.h || H > 800) H = P.h;
     P.dh = content_h(H) - P.h;
