@@ -38,6 +38,6 @@ python3 make_page.py --icon "$STAGE/icon.png" addin/openmpc-logo.png >/dev/null
 cp app/addin.manifest "$STAGE/"
 python3 "$MPC_VST/tools/release_addin.py" --dir "$STAGE" --version "$VERSION" --license MIT --repo open-mpc/plugin-manager \
     --about "The Open MPC Plugin Manager as an app: a Plugin Manager tile in MENU, full screen, and the web page on port 8790, without the plugin (Gen2, Gen1 MPC and Force: MPC OS 3.10.1)." \
-    --requires "Addin Restore (PATCHES in the Plugin Manager, or the addin-restore patch) so the app comes back after a reboot." \
+    --requires "MPC OS 3.10.1. Addin Restore (PATCHES in the Plugin Manager, installed with this app by the Manager) so the app comes back after a reboot." \
     --conflicts modeslot \
     -o "$OUT"
