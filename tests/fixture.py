@@ -121,6 +121,9 @@ comp = ("#!/bin/sh\nM=/tmp/fx-comp-marker\n"
         "install) [ \"$2\" = --confirmed ] || exit 3; if [ -e /tmp/fx-comp-fail ]; then echo \"could not install\"; exit 1; fi; rm -f /tmp/fx-comp-old; : > $M ;;\n"
         "uninstall) [ \"$2\" = --confirmed ] || exit 3; rm -f $M ;;\n*) exit 2 ;; esac\n")
 open(os.path.join(out, "patch-comp.sh"), "w").write(comp)
+# the Addin Restore stand-in (installing an addin on aarch64 installs it first): /tmp/fx-restore-fail makes its install fail
+rest = comp.replace("fx-comp-marker", "fx-restore-marker").replace("fx-comp-old", "fx-restore-old").replace("fx-comp-fail", "fx-restore-fail")
+open(os.path.join(out, "patch-restore.sh"), "w").write(rest)
 def pat(i, title, script, sha, arch, restarts=False):
     return {"id": i, "title": title, "summary": "A fixture patch that changes nothing. " * 6, "author": "tests", "license": "MIT", "docs": "x",
             "script": {"url": base + script, "sha256": sha},
@@ -133,7 +136,8 @@ json.dump({"schema": 1, "patches": [
     pat("fx-arm", "Fixture other CPU", "patch-stock.sh", sh_, "mips"),
     dict(pat("fx-restart", "Fixture restarting", "patch-stock.sh", sh_, "armv7l,aarch64,x86_64", True),
          also_installs={"x86_64": ["fx-comp"], "aarch64": ["fx-comp"], "armv7l": ["fx-comp"]}),
-    pat("fx-comp", "Fixture companion: keeps it", "patch-comp.sh", hashlib.sha256(comp.encode()).hexdigest(), "armv7l,aarch64,x86_64")]},
+    pat("fx-comp", "Fixture companion: keeps it", "patch-comp.sh", hashlib.sha256(comp.encode()).hexdigest(), "armv7l,aarch64,x86_64"),
+    pat("addin-restore", "Fixture Addin Restore", "patch-restore.sh", hashlib.sha256(rest.encode()).hexdigest(), "aarch64,x86_64")]},
     open(os.path.join(out, "patches.json"), "w"), indent=1)
 # the catalog the device runs browse: tests/catalog-snapshot.json (a frozen extract of the live one, tests/snapshot_catalog.py) with every
 # download pointed at one stand-in package, so no test reads the network

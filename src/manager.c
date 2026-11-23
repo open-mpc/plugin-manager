@@ -1440,9 +1440,10 @@ static int companions_first(mgr_t *m, const patch_t *p) {
 static void addin_restore_first(mgr_t *m, const pkg_t *q, int nq) {
     int want = 0;
     for (int i = 0; i < nq; i++) if (is_addin(&q[i]) && q[i].queued == Q_INSTALL) want = 1;
-    if (!want || strcmp(m->dev->arch, "aarch64")) return;
+    if (!want || !want_asset()) return;   /* want_asset(): an aarch64 (Gen2) MPC; PM_ARCH lets the tests pretend */
     patch_t c = {0};
     int found = 0;
+    if (!m->npt) patches_load(m);   /* the list loads on each refresh; this is for one that has not run yet */
     pthread_mutex_lock(&m->mu);
     for (int k = 0; k < m->npt; k++)
         if (!strcmp(m->pt[k].id, "addin-restore") && !m->pt[k].restarts && m->pt[k].reversible && pt_arch_ok(m, &m->pt[k])) { c = m->pt[k]; found = 1; }

@@ -71,7 +71,20 @@ echo "-- apply.sh:"; grep -E "^(sh|echo)" /tmp/openmpc-pm/apply.sh
 grep -q "/install.sh'"'"' -y -n -t '"'"'/data/mpc-addins/beta-addin'"'"'" /tmp/openmpc-pm/apply.sh
 grep -q "/data/mpc-addins/alpha-addin/uninstall.sh'"'"' -y -n -t '"'"'/data/mpc-addins/alpha-addin'"'"'" /tmp/openmpc-pm/apply.sh
 ! grep -q gamma /tmp/openmpc-pm/apply.sh
-echo "addins OK"
+# a Gen2 MPC: installing an addin installs Addin Restore first (and still installs the addin when that fails)
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts /tmp/fx-restore-marker /tmp/fx-restore-fail; mkdir -p /media
+sh tests/devices/mpc-one.sh && sh tests/addins.sh && PM_ARCH=aarch64 /tmp/drive_addins addins > /tmp/addins-a64.out
+[ -e /tmp/fx-restore-marker ] || { echo "FAIL: Addin Restore was not installed with the addin"; exit 1; }
+grep -q "beta-addin" /tmp/openmpc-pm/apply.sh || { echo "FAIL: the addin install is missing from apply.sh"; exit 1; }
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts /tmp/fx-restore-marker; mkdir -p /media; : > /tmp/fx-restore-fail
+sh tests/devices/mpc-one.sh && sh tests/addins.sh && PM_ARCH=aarch64 /tmp/drive_addins addins > /tmp/addins-a64f.out
+[ ! -e /tmp/fx-restore-marker ] || { echo "FAIL: a failing Addin Restore left a marker"; exit 1; }
+grep -q "beta-addin" /tmp/openmpc-pm/apply.sh || { echo "FAIL: the addin was not installed after Addin Restore failed"; exit 1; }
+rm -f /tmp/fx-restore-fail
+rm -rf /media /sdcard /nvme /synths /data /tmp/openmpc-pm /tmp/pm-mounts; mkdir -p /media
+sh tests/devices/mpc-one.sh && sh tests/addins.sh && /tmp/drive_addins addins > /tmp/addins-x86.out
+[ ! -e /tmp/fx-restore-marker ] || { echo "FAIL: Addin Restore installed on a CPU it is not for"; exit 1; }
+echo "addins OK (Addin Restore: installed on aarch64, skipped elsewhere, a failure does not stop the addin)"
 fi # addins
 if want links; then
 echo "== links (offline fixture): a package that needs a symbolic link"
