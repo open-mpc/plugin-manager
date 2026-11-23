@@ -395,4 +395,9 @@ The whole Manager without the plugin, for people who want it as a MENU mode rath
   Restore as a dependency.
 - **Catalog.** Listed in the add-in section as an alternative to the plugin; it conflicts with the Mode Slot addin (the same
   slot), which stays for other apps that want to draw the page.
-- **Limits.** Gen2, MPC 3.10.1 (the shim's firmware profile); one skin (light), so no theme switch.
+- **Limits.** MPC OS 3.10.1 on Gen2, Gen1 MPC and Force (the shim has one firmware profile per build, found offline: modeslot/README.md);
+  other builds are refused and the app then runs without a tile (its web page still works). One skin (light), so no theme switch.
+- **Gen1 and Force.** The same app for 32-bit ARM (`package_app.sh ... armv7`): the 32-bit shim, the armv7 daemon and splash. The
+  app runs in its own unit (`openmpc-pm-app`) and stops the plugin's server (`openmpc-pm-daemon`, a persistent unit on Gen1 and
+  Force); the daemon exits by itself when its binary is removed (the uninstaller) or replaced (an update). Tested under qemu and in
+  the compat emulator; not on a device yet.

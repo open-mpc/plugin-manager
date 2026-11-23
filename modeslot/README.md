@@ -1,6 +1,16 @@
 # modeslot: a mode of your own in one of MPC's unused mode slots (proof of concept)
 
-A small `LD_PRELOAD` library for Gen2 (aarch64) MPC. It turns the unused mode ID `0x2090` into a mode called "Plugin Manager" (the Open MPC Plugin Manager; "Open MPC" before 2026-11-22) that you can enter, see and leave. Background, addresses and the reasoning are in mpc-vst-plugins `docs/MPC_MODES.md` (device results in its `docs/NOTES.md`). The Plugin Manager's daemon draws the slot's page (`src/page.c`, DESIGN.md "The Manager in an MPC mode slot").
+A small `LD_PRELOAD` library for MPC OS 3.10.1 on Gen2 (aarch64) and on Gen1 MPC and Force (32-bit ARM). It turns the unused mode ID `0x2090` into a mode called "Plugin Manager" (the Open MPC Plugin Manager; "Open MPC" before 2026-11-22) that you can enter, see and leave. Background, addresses and the reasoning are in mpc-vst-plugins `docs/MPC_MODES.md` (device results in its `docs/NOTES.md`). The Plugin Manager's daemon draws the slot's page (`src/page.c`, DESIGN.md "The Manager in an MPC mode slot").
+
+**Firmware (the shim refuses every other build and changes nothing):**
+
+| Device | MPC OS | build-id | profile | verified |
+|---|---|---|---|---|
+| Gen2 (Live III, One G2, Key G2) | 3.10.1 official, `3.10.1.12 (f088e9c8427)` | `8b28179d…b837` | `src/profiles_a64.h` | `check` and on a Live III (device) |
+| Gen1 MPC (Live, Live II, One, X, Key 61/37) | 3.10.1, `3.10.1.12 (f088e9c8427)` | `851d050e…53d4` | `src/profiles_a32.h` | `check` and qemu tests; emulator (compat suite); no device yet |
+| Force | 3.10.1 final, same version note, snapshot 20261107130300 | `1d935334…e4e0` | `src/profiles_a32.h` | `check` and qemu tests; no device yet |
+
+3.10.1 is the minimum on both generations. The Force's 3.10.1.8 pre-release is a different build and is refused.
 
 **Status:**
 - **v1 (name only) was tried on the Live III, 2026-11-22.** It loaded. A Lua `RequestModeChange("Open MPC")` entered the slot and showed MPC's "page coming soon" picture. The mode buttons could not leave it, and only an MPC restart got out (see NOTES).
@@ -38,16 +48,24 @@ Six hooks. Each one checks its function's first four instructions before anythin
   - every address lies in the program, and the placeholder is a PNG.
 
   When it refuses, it writes one `modeslot: refused: ...` line to stderr (MPC's journal) and changes nothing. When it installs, it writes `modeslot: installed: ...`, including whether the page and icon loaded.
-- **Supported:** one profile, the official Gen2 3.10.1, `MPC 3.10.1.12 (f088e9c8427)`, build-id `8b28179d…b837`, md5 `b24b7955…`. Every other build is refused, including 3.10.1.8.
+- **Supported:** the profiles in the table at the top (Gen2 official 3.10.1, md5 `b24b7955…`; Gen1 MPC 3.10.1; Force 3.10.1). Every other build is refused, including the Force's 3.10.1.8.
 - **The drum-pad copy** (md5 `b4283ece`) keeps the build-id. It changes only these byte ranges: `0x17b20a9..0x17b417d` (six single bytes), `0x2c549c4..0x2c549cf`, `0x2c54bb0..0x2c54bb3` and `0x7b100f0..0x7b101b2`. None of them touches the five hook sites, the placeholder PNG or its pointer. v1 loaded on it (device).
 
 ## Build and test (offline)
 ```
-modeslot/build.sh          # src/modeslot.so (Docker arm64v8/gcc:12-bookworm; needs GLIBC_2.34, MPC 3.10.1 has 2.39)
+modeslot/build.sh          # src/modeslot.so, Gen2 (Docker arm64v8/gcc:12-bookworm; needs GLIBC_2.34, MPC 3.10.1 has 2.39)
+modeslot/build.sh arm      # src/modeslot-armv7.so, Gen1 MPC and Force (Docker arm32v7/gcc:12-bookworm; GLIBC_2.34, the firmware has 2.38)
 modeslot/build.sh test     # aarch64 tests under qemu (Docker binfmt)
-modeslot/build.sh check <MPC binary>   # the profile against a firmware binary on disk
+modeslot/build.sh test32   # the same scenarios on 32-bit ARM
+modeslot/build.sh check <MPC binary>   # the profile against a firmware binary on disk (Gen2, Gen1 MPC or Force: by the ELF type)
 python3 modeslot/make_page.py page.png; python3 modeslot/make_page.py --icon icon.png modeslot/addin/openmpc-logo.png
 ```
+- **Sources.** `modeslot.c` (installation, shared), `page_host.c` (the live page host, shared), and per architecture: `arch_a64.c`
+  + `hook.S` + `profiles_a64.h`, `arch_a32.c` + `hooks_a32.c` + `profiles_a32.h`. On 32-bit ARM the result pointer of a class returned
+  by value (`juce::String`, `juce::Image`) is an ordinary first argument, so its four hooks are plain C. The 32-bit entry patch is
+  `ldr pc, [pc, #-4]; .word hook` over the function's first two instructions, which go to a trampoline; an `ldr rX, [pc, #imm]`
+  among them is re-created to read a copy of its literal (what it loads is a constant), and any other use of `pc` is refused. The
+  32-bit jump tables are tables of `b` instructions. The shared test (`test_modeslot.c`) takes what differs from `test_arch.h`.
 - **`test`** hooks stand-ins for all five functions. Each stand-in has the same kind of entry instructions; the image and icon ones include an `adrp`, like MPC's. It checks:
   - **name:** the slot name, the other names and the `x0` return value;
   - **controller:** that a registration of `0x2080` is repeated for `0x2090` with the same object, and no other registration is;
@@ -66,7 +84,14 @@ python3 modeslot/make_page.py page.png; python3 modeslot/make_page.py --icon ico
   - that the binary has no BTI property note.
 
   It passes on `b24b7955`.
-- **Not tested offline:** MPC's real code paths.
+- **`test32`** runs the same scenarios against 32-bit stand-ins (`test_fake_a32.S`), and also executes displaced literal loads through
+  a trampoline, forward and backward, and checks which instructions may be displaced and how a jump table is read.
+- **`check` on 32-bit** (`check_profile_a32.py`) goes further than on Gen2, because the binary's RTTI is there: `paint` is slot 8 of
+  `TouchDummyPage`'s vtable, its Component sub-vtable holds the mouse slots, the wrapper vtable is `TouchPageContainer`'s, the page
+  holder's offsets match the touch UI's code, and the Component layout constants match what `setBounds`, `repaint` and
+  `getFromMemory` read. A wrong value in the profile is reported (six mutations tried).
+- **Not tested offline:** MPC's real code paths. The compat suite (open-mpc/mpc-compat-tests, `modeslot_addin`, `modeslot_app`)
+  runs the release zips on the real firmware under emulation.
 
 ## Live page host (v3, offline)
 Hook 7 makes the slot a live page for an outside app (`src/page_host.c`; design in mpc-vst-plugins `docs/MPC_MODES.md`).
