@@ -178,6 +178,7 @@ static struct omm_profile profile(void)
         .page_holder_field = 0x300,
         .page_vtable = (uintptr_t)fake_page_vt,
         .wrapper_vtable = (uintptr_t)fake_wrap_vt,
+        .comp_parent = 0x18, .comp_bounds = 0x20, .comp_children = 0x40, .comp_children_used = 0x4c, .img_refcount = 8,
     };
     return p;
 }

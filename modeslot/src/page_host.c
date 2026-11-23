@@ -62,16 +62,15 @@ static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static int raised_from = -1;
 static int logged_once;          // the full-height success lines are logged the first time only     // where the page was in its parent's child list before it was brought to the front
 
-// juce::Component: parentComponent at 0x18, childComponentList (Array<Component *>: elements, numAllocated, numUsed)
-// at 0x40. Checked at run time: the parent's list must hold the page exactly once.
-#define COMP_PARENT 0x18
-#define COMP_CHILDREN 0x40
+// juce::Component: parentComponent, boundsRelativeToParent (x, y, w, h) and childComponentList (Array<Component *>:
+// elements, numAllocated, numUsed) at the offsets the profile gives (the layout depends on the pointer size).
+// Checked at run time: the parent's list must hold the page exactly once.
 static void **child_list(void *comp, int *n, int *at)
 {
-    void *parent = *(void **)((char *)comp + COMP_PARENT);
+    void *parent = *(void **)((char *)comp + fns.comp_parent);
     if (!parent) return NULL;
-    void **kids = *(void ***)((char *)parent + COMP_CHILDREN);
-    int used = *(int32_t *)((char *)parent + COMP_CHILDREN + 12);
+    void **kids = *(void ***)((char *)parent + fns.comp_children);
+    int used = *(int32_t *)((char *)parent + fns.comp_children_used);
     if (!kids || used <= 0 || used > 256) return NULL;
     int found = -1;
     for (int i = 0; i < used; i++)
@@ -124,8 +123,6 @@ static void say(const char *fmt, ...)
     va_end(ap);
 }
 
-// omm_call_sret(fn, a0, a1, out): fn(a0, a1) with x8 = out (hook.S).
-extern void omm_call_sret(void *fn, void *a0, void *a1, void *out);
 
 static double now(void)
 {
@@ -164,7 +161,7 @@ void omm_send(const char *fmt, ...)
 static void release_img(void *img)
 {
     if (!img) return;
-    int *rc = (int *)((char *)img + 8);
+    int *rc = (int *)((char *)img + fns.img_refcount);
     if (__atomic_fetch_sub(rc, 1, __ATOMIC_ACQ_REL) == 1) {
         void (**vt)(void *) = *(void (***)(void *))img;
         vt[1](img); // deleting destructor
@@ -248,17 +245,17 @@ static int grow(void *comp)
         say("full height: page %p is not the one paint saw (%p); not moved", comp, seen_comp);
         return 0;
     }
-    const int32_t *b = (const int32_t *)((char *)comp + 0x20); // x, y, w, h
+    const int32_t *b = (const int32_t *)((char *)comp + fns.comp_bounds); // x, y, w, h
     if (b[1] <= 0 || b[3] <= 0 || b[2] <= 0 || b[1] > 800 || b[3] > 800 || b[2] > 2000) return 0;
     memcpy(grown_from, b, sizeof grown_from);
     grown = comp;
     int x = b[0], y = b[1], w = b[2], h = b[3], bottom = y + h;
     // The whole screen: the mode's wrapper (the page's parent, checked by its vtable) stops above MPC's bottom strip;
     // stretch it to its own parent's bottom too. The strip is empty for the slot (the placeholder page has no tabs).
-    void *parent = *(void **)((char *)comp + COMP_PARENT);
-    void *gp = parent ? *(void **)((char *)parent + COMP_PARENT) : NULL;
+    void *parent = *(void **)((char *)comp + fns.comp_parent);
+    void *gp = parent ? *(void **)((char *)parent + fns.comp_parent) : NULL;
     if (fns.whole_screen && fns.wrapper_vtable && gp && *(uintptr_t *)parent == fns.wrapper_vtable) {
-        const int32_t *pb = (const int32_t *)((char *)parent + 0x20), *gb = (const int32_t *)((char *)gp + 0x20);
+        const int32_t *pb = (const int32_t *)((char *)parent + fns.comp_bounds), *gb = (const int32_t *)((char *)gp + fns.comp_bounds);
         if (pb[1] >= 0 && pb[1] + pb[3] < gb[3] && gb[3] <= 2000) {
             memcpy(wrap_from, pb, sizeof wrap_from);
             wrap = parent;
@@ -282,12 +279,12 @@ static void shrink(void)
     if (!grown) return;
     lower_page(grown);
     if (wrap) {                                                // the wrapper first: its layout may move the page back itself
-        const int32_t *pb = (const int32_t *)((char *)wrap + 0x20);
+        const int32_t *pb = (const int32_t *)((char *)wrap + fns.comp_bounds);
         if (pb[0] == wrap_from[0] && pb[1] == wrap_from[1] && pb[2] == wrap_from[2])
             fns.set_bounds(wrap, wrap_from[0], wrap_from[1], wrap_from[2], wrap_from[3]);
         wrap = NULL;
     }
-    const int32_t *b = (const int32_t *)((char *)grown + 0x20);
+    const int32_t *b = (const int32_t *)((char *)grown + fns.comp_bounds);
     if (b[0] == grown_from[0] && b[1] == 0 && b[2] == grown_from[2] && b[3] == grown_h) {
         fns.set_bounds(grown, grown_from[0], grown_from[1], grown_from[2], grown_from[3]);
     }
@@ -297,9 +294,9 @@ static void shrink(void)
 static void repaint_pixel(void)
 {
     if (!page_comp) return;
-    const int32_t *b = (const int32_t *)((char *)page_comp + 0x20); // x, y, w, h
+    const int32_t *b = (const int32_t *)((char *)page_comp + fns.comp_bounds); // x, y, w, h
     uint32_t x = (uint32_t)(b[2] > 0 ? b[2] / 2 : 0), y = (uint32_t)(b[3] > 0 ? b[3] / 2 : 0);
-    fns.repaint_area(page_comp, ((uint64_t)y << 32) | x, ((uint64_t)1 << 32) | 1);
+    fns.repaint_area(page_comp, (int)x, (int)y, 1, 1);
 }
 
 // 7. TouchDummyPage::paint(page, Graphics &).
@@ -309,13 +306,13 @@ void omm_paint_hook(void *page, void *g)
     if (omm_cur_mode == omm_slot_id && !omm_yield) {
         page_comp = (char *)page + fns.page_component_offset;
         if (page_comp != seen_comp) {
-            const int32_t *pb = (const int32_t *)((char *)page_comp + 0x20);
+            const int32_t *pb = (const int32_t *)((char *)page_comp + fns.comp_bounds);
             if (seen_comp) say("page host: the page is a new Component (%p) at %d,%d %dx%d", page_comp, pb[0], pb[1], pb[2], pb[3]);
             seen_comp = page_comp;
         }
         double t = now();
         if (!sent_size || t - size_sent_at >= SIZE_SECONDS) {
-            const int32_t *b = (const int32_t *)((char *)page_comp + 0x20); // x, y, w, h
+            const int32_t *b = (const int32_t *)((char *)page_comp + fns.comp_bounds); // x, y, w, h
             omm_send("size %d %d", b[2], b[3]);
             sent_size = 1;
             size_sent_at = t;

@@ -104,11 +104,6 @@ const void *omm_icon_data;      // our MENU icon
 uint32_t omm_icon_size;         // 0 = no icon (MPC's default: none)
 uint32_t omm_yield;             // 1 = the slot is someone else's: every hook passes through
 
-extern void omm_hook(void);
-extern void omm_reg_hook(void);
-extern void omm_img_hook(void);
-extern void omm_icon_hook(void);
-
 static const struct omm_profile profiles[] = {
     {
         .label = "MPC 3.10.1.12 (f088e9c8427), Gen2 official 3.10.1",
@@ -155,6 +150,7 @@ static const struct omm_profile profiles[] = {
         .page_vtable = 0x7df7080,                  // TouchDummyPage, set again by its destructor 0x3c59b08
         .page_dtor = 0x3c59b08,
         .wrapper_vtable = 0x7d7fae0,               // each mode's page wrapper (read from the Live III's component tree)
+        .comp_parent = 0x18, .comp_bounds = 0x20, .comp_children = 0x40, .comp_children_used = 0x4c, .img_refcount = 8,
     },
 };
 
@@ -163,46 +159,6 @@ static void say(const char *fmt, const char *a, const char *b)
     fprintf(stderr, "modeslot: ");
     fprintf(stderr, fmt, a, b);
     fputc('\n', stderr);
-}
-
-static int is_adrp(uint32_t insn) { return (insn & 0x9f000000u) == 0x90000000u; }
-
-int omm_pc_relative(uint32_t insn)
-{
-    if ((insn & 0x1f000000u) == 0x10000000u) return 1; // adr, adrp
-    if ((insn & 0x7c000000u) == 0x14000000u) return 1; // b, bl
-    if ((insn & 0x7e000000u) == 0x34000000u) return 1; // cbz, cbnz
-    if ((insn & 0x7e000000u) == 0x36000000u) return 1; // tbz, tbnz
-    if ((insn & 0xff000010u) == 0x54000000u) return 1; // b.cond
-    if ((insn & 0x3b000000u) == 0x18000000u) return 1; // ldr/ldrsw/prfm (literal)
-    return 0;
-}
-
-static uint64_t adrp_value(uint32_t insn, uintptr_t pc)
-{
-    int64_t imm = (int64_t)((((insn >> 5) & 0x7ffffu) << 2) | ((insn >> 29) & 3u));
-    if (imm & (1 << 20)) imm -= (int64_t)1 << 21;
-    return (uint64_t)((pc & ~(uintptr_t)0xfff) + (uintptr_t)(imm * 4096));
-}
-
-// t[0..3]: the entry instructions (an adrp becomes "ldr xd, <literal t[8+2i]>"); t[4..7]: ldr x16, #8;
-// br x16; .quad entry+16; t[8..15]: literals. t must be 8-byte aligned.
-void omm_fill_tramp(uint32_t *t, const uint32_t *code, uintptr_t entry_addr)
-{
-    memset(t, 0, 64);
-    for (int i = 0; i < 4; i++) {
-        if (is_adrp(code[i])) {
-            uint64_t v = adrp_value(code[i], entry_addr + 4u * (unsigned)i);
-            memcpy(&t[8 + 2 * i], &v, 8);
-            t[i] = 0x58000000u | ((uint32_t)(8 + i) << 5) | (code[i] & 31u); // ldr xd, #4*(8+i)
-        } else {
-            t[i] = code[i];
-        }
-    }
-    t[4] = 0x58000050u; // ldr x16, #8
-    t[5] = 0xd61f0200u; // br x16
-    uint64_t resume = (uint64_t)(entry_addr + 16);
-    memcpy(&t[6], &resume, 8);
 }
 
 struct main_info {
@@ -268,43 +224,18 @@ static int in_segment(uintptr_t base, uintptr_t addr, size_t len, int exec)
 static const char *check_site(uintptr_t base, const struct omm_site *s, int check_segments)
 {
     const uint32_t *entry = (const uint32_t *)(base + s->addr);
-    if (check_segments && !in_segment(base, (uintptr_t)entry, 16, 1)) return "hook address outside the executable segment";
+    if (check_segments && !in_segment(base, (uintptr_t)entry, 4 * OMM_ENTRY_WORDS, 1)) return "hook address outside the executable segment";
     if (((uintptr_t)entry & 3) != 0) return "hook address not aligned";
-    if (memcmp(entry, s->prologue, 16) != 0) return "entry instructions differ";
-    for (int i = 0; i < 4; i++)
-        if (omm_pc_relative(s->prologue[i]) && !is_adrp(s->prologue[i]))
-            return "entry instructions are PC-relative";
-    return NULL;
-}
-
-static const char *patch_entry(uint32_t *entry, void (*hook)(void), long pg)
-{
-    uintptr_t lo = (uintptr_t)entry & ~((uintptr_t)pg - 1); // the 16 bytes may straddle two pages
-    uintptr_t hi = ((uintptr_t)entry + 16 + (uintptr_t)pg - 1) & ~((uintptr_t)pg - 1);
-    if (mprotect((void *)lo, hi - lo, PROT_READ | PROT_WRITE) != 0) return "mprotect entry (write) failed";
-    uint32_t patch[4] = {0x58000050u, 0xd61f0200u, 0, 0}; // ldr x16, #8; br x16; .quad hook
-    uint64_t h = (uint64_t)(uintptr_t)hook;
-    memcpy(&patch[2], &h, 8);
-    memcpy(entry, patch, 16);
-    if (mprotect((void *)lo, hi - lo, PROT_READ | PROT_EXEC) != 0) return "mprotect entry (exec) failed";
-    __builtin___clear_cache((char *)entry, (char *)(entry + 4));
-    return NULL;
-}
-
-static int table_default(uintptr_t base, uintptr_t table, uintptr_t tbase, uintptr_t def, uint32_t len, uint32_t id)
-{
-    if (id < 0x2080 || id - 0x2080 >= len) return 0;
-    int16_t e;
-    memcpy(&e, (const void *)(base + table + 2 * (id - 0x2080)), 2);
-    return base + tbase + (uintptr_t)((intptr_t)e * 4) == base + def;
+    if (memcmp(entry, s->prologue, 4 * OMM_ENTRY_WORDS) != 0) return "entry instructions differ";
+    return omm_arch_check_entry(s->prologue);
 }
 
 uint32_t omm_pick_slot(uintptr_t base, const struct omm_profile *p)
 {
     for (int i = 0; i < 4 && p->candidates[i]; i++) {
         uint32_t id = p->candidates[i];
-        if (table_default(base, p->name_table, p->name_table_base, p->name_default, p->table_len, id) &&
-            table_default(base, p->page_table, p->page_table_base, p->page_default, p->table_len, id))
+        if (omm_arch_table_default(base, p->name_table, p->name_table_base, p->name_default, p->table_len, id) &&
+            omm_arch_table_default(base, p->page_table, p->page_table_base, p->page_default, p->table_len, id))
             return id;
     }
     return 0;
@@ -366,14 +297,14 @@ const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_s
     for (int i = 0; i < N; i++)
         if (sites[i]->addr) {
             uintptr_t a = base + sites[i]->addr;
-            omm_fill_tramp(t + 16 * i, (const uint32_t *)a, a);
-            *tramps[i] = (uintptr_t)(t + 16 * i);
+            omm_fill_tramp(t + OMM_TRAMP_WORDS * i, (const uint32_t *)a, a);
+            *tramps[i] = (uintptr_t)(t + OMM_TRAMP_WORDS * i);
         }
     if (mprotect(t, (size_t)pg, PROT_READ | PROT_EXEC) != 0) {
         munmap(t, (size_t)pg);
         return "mprotect trampoline failed";
     }
-    __builtin___clear_cache((char *)t, (char *)(t + 16 * N));
+    __builtin___clear_cache((char *)t, (char *)(t + OMM_TRAMP_WORDS * N));
 
     omm_ctor = (uintptr_t)ctor;
     omm_slot_id = slot;
@@ -385,7 +316,7 @@ const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_s
     if (p->page_paint.addr) {
         struct omm_live_fns lf = {
             .repaint = (void (*)(void *))(base + p->repaint.addr),
-            .repaint_area = (void (*)(void *, uint64_t, uint64_t))(base + p->repaint_area.addr),
+            .repaint_area = omm_arch_repaint_rect(base + p->repaint_area.addr),
             .memstream_ctor = (void (*)(void *, const void *, size_t, int))(base + p->memstream_ctor.addr),
             .memstream_dtor = (void (*)(void *))(base + p->memstream_dtor.addr),
             .find_format = (void *(*)(void *))(base + p->find_format.addr),
@@ -397,6 +328,8 @@ const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_s
             .page_holder_field = p->page_holder_field,
             .page_vtable = p->page_vtable ? base + p->page_vtable : 0,
             .wrapper_vtable = p->wrapper_vtable ? base + p->wrapper_vtable : 0,
+            .comp_parent = p->comp_parent, .comp_bounds = p->comp_bounds,
+            .comp_children = p->comp_children, .comp_children_used = p->comp_children_used, .img_refcount = p->img_refcount,
             .whole_screen = !(getenv("OMM_FULL_HEIGHT") && !strcmp(getenv("OMM_FULL_HEIGHT"), "1")),
         };
         omm_live_setup(&lf);
@@ -411,7 +344,7 @@ const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_s
 
     // The name hook last: until it is in, nothing can ask for the slot.
     for (int i = N - 1; i >= 0; i--)
-        if (sites[i]->addr && (err = patch_entry((uint32_t *)(base + sites[i]->addr), hooks[i], pg))) return err;
+        if (sites[i]->addr && (err = omm_arch_patch((uint32_t *)(base + sites[i]->addr), hooks[i], pg))) return err;
     return NULL;
 }
 

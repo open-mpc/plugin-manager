@@ -3,7 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// One hooked function: its link-time address and the four entry instructions it must have.
+// One hooked function: its link-time address and the entry instructions it must have (aarch64: 4 words, 32-bit ARM: 2;
+// the rest zero).
 struct omm_site {
     uintptr_t addr;      // 0 = this hook is off
     uint32_t prologue[4];
@@ -12,7 +13,7 @@ struct omm_site {
 // MPC functions the live page host calls (resolved at install).
 struct omm_live_fns {
     void (*repaint)(void *component);                                  // juce::Component::repaint()
-    void (*repaint_area)(void *component, uint64_t xy, uint64_t wh);   // repaint of a Rectangle<int>
+    void (*repaint_area)(void *component, int x, int y, int w, int h); // repaint of a Rectangle<int>
     void (*memstream_ctor)(void *stream, const void *data, size_t size, int keep_copy);
     void (*memstream_dtor)(void *stream);
     void *(*find_format)(void *stream);                               // ImageFileFormat::findImageFormatForStream
@@ -24,6 +25,10 @@ struct omm_live_fns {
     uintptr_t page_vtable;                                             // TouchDummyPage's vtable (absolute): checked first
     uintptr_t wrapper_vtable;                                          // a mode's wrapper (the page's parent), absolute; 0 = keep the strip
     int whole_screen;                                                  // also cover MPC's bottom strip (OMM_FULL_HEIGHT not 1)
+    // juce::Component and ReferenceCountedObject layout (bytes), which differs with the pointer size
+    uint32_t comp_parent, comp_bounds;                                 // parent pointer; x, y, w, h (4 ints)
+    uint32_t comp_children, comp_children_used;                        // child array (elements pointer); its numUsed
+    uint32_t img_refcount;                                             // an Image's pixel data: the reference count
 };
 
 // A function MPC calls or the shim calls, with its expected first instruction.
@@ -95,6 +100,9 @@ struct omm_profile {
     // The whole screen: each mode's page sits in a wrapper Component (wrapper_vtable) that stops above MPC's bottom
     // strip (1280 x 738 on a Live III); the shim stretches it to its parent's bottom while the slot is shown.
     uintptr_t wrapper_vtable;
+    // juce::Component layout in this build: parentComponent, boundsRelativeToParent (x, y, w, h), the child array's
+    // elements pointer and its numUsed; ReferenceCountedObject's count (the Image's pixel data).
+    uint32_t comp_parent, comp_bounds, comp_children, comp_children_used, img_refcount;
 };
 
 // 1 once the slot turned out to be someone else's (every hook then passes through); for the tests.
@@ -121,13 +129,40 @@ void omm_order_hook(void *order, const struct omm_mode_vec *modes, void *setting
 // executable PT_LOAD of the main program.
 const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_segments);
 int omm_main_build_id(uintptr_t *base, uint8_t *id, size_t cap, size_t *len);
-int omm_pc_relative(uint32_t insn);
+#if defined(__aarch64__)
+int omm_pc_relative(uint32_t insn);   // arch_a64.c
+#endif
 // The first free candidate for a program loaded at base, or 0 if none is free.
 uint32_t omm_pick_slot(uintptr_t base, const struct omm_profile *p);
 // Load the slot's page picture / icon (PNG bytes); returns the size, 0 if there is none.
 size_t omm_load_page(const char *path);
 size_t omm_load_icon(const char *path);
-// The trampoline code for one hooked entry (16 words); exposed for the tests.
+// ---- per architecture (arch_a64.c: Gen2 aarch64; arch_a32.c: Gen1 MPC and Force, 32-bit ARM) ----
+// Entry instructions a hook displaces, and the words one trampoline takes.
+#if defined(__aarch64__)
+#define OMM_ENTRY_WORDS 4
+#define OMM_TRAMP_WORDS 16
+#elif defined(__arm__)
+#define OMM_ENTRY_WORDS 2
+#define OMM_TRAMP_WORDS 8
+#endif
+// The trampoline for one hooked entry: the displaced instructions (PC-relative loads re-created), then a jump back to
+// the rest of the function. t holds OMM_TRAMP_WORDS words and must be 8-byte aligned. Exposed for the tests.
 void omm_fill_tramp(uint32_t *t, const uint32_t *entry_code, uintptr_t entry_addr);
+// NULL if the entry instructions in code can be displaced by a trampoline, else why not.
+const char *omm_arch_check_entry(const uint32_t *code);
+// Overwrite the entry with a jump to hook (entry's page made writable for the write).
+const char *omm_arch_patch(uint32_t *entry, void (*hook)(void), long pg);
+// 1 if a jump table entry for id (the switch at table, default case at def) goes to the default case.
+int omm_arch_table_default(uintptr_t base, uintptr_t table, uintptr_t table_base, uintptr_t def, uint32_t len, uint32_t id);
+// The function that repaints a Rectangle<int> as (comp, x, y, w, h), from MPC's own (address real).
+void (*omm_arch_repaint_rect(uintptr_t real))(void *, int, int, int, int);
+// omm_call_sret(fn, a0, a1, out): fn(a0, a1) with its result object at out (hook.S; hooks_a32.c).
+void omm_call_sret(void *fn, void *a0, void *a1, void *out);
+// The hooks 1, 2, 4, 5 (assembly on aarch64, C on 32-bit ARM, where the result pointer is an ordinary argument).
+void omm_hook(void);
+void omm_reg_hook(void);
+void omm_img_hook(void);
+void omm_icon_hook(void);
 
 #endif

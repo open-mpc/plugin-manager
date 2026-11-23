@@ -12,8 +12,8 @@ FLAGS='-O2 -Wall -Wextra -std=gnu11 -fPIC -fvisibility=hidden -mbranch-protectio
 case "${1:-}" in
 test)
     docker run --rm --user "$(id -u):$(id -g)" --platform linux/arm64 -v "$PWD/src":/b -w /b $IMG bash -euc \
-        "gcc $FLAGS -Wl,--build-id test_modeslot.c modeslot.c page_host.c hook.S test_fake.S -o /tmp/t && /tmp/t &&
-         gcc $FLAGS -shared modeslot.c page_host.c hook.S -o /tmp/modeslot.so &&
+        "gcc $FLAGS -Wl,--build-id test_modeslot.c modeslot.c arch_a64.c page_host.c hook.S test_fake.S -o /tmp/t && /tmp/t &&
+         gcc $FLAGS -shared modeslot.c arch_a64.c page_host.c hook.S -o /tmp/modeslot.so &&
          mkdir -p /tmp/x && echo 'int main(void){return 0;}' > /tmp/x/m.c && gcc -Wl,--build-id=none /tmp/x/m.c -o /tmp/x/MPC &&
          LD_PRELOAD=/tmp/modeslot.so /tmp/x/MPC 2>&1 | grep -q '^modeslot: refused: no build-id' &&
          gcc -Wl,--build-id /tmp/x/m.c -o /tmp/x/MPC &&
@@ -31,6 +31,6 @@ demo)   # demo/pagedemo, the page host's test app (aarch64)
     ;;
 *)
     docker run --rm --user "$(id -u):$(id -g)" --platform linux/arm64 -v "$PWD/src":/b -w /b $IMG bash -euc \
-        "gcc $FLAGS -shared -Wl,-z,now,-z,relro modeslot.c page_host.c hook.S -o modeslot.so && strip modeslot.so"
+        "gcc $FLAGS -shared -Wl,-z,now,-z,relro modeslot.c arch_a64.c page_host.c hook.S -o modeslot.so && strip modeslot.so"
     ;;
 esac
