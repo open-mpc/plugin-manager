@@ -7,8 +7,8 @@ A small `LD_PRELOAD` library for MPC OS 3.10.1 on Gen2 (aarch64) and on Gen1 MPC
 | Device | MPC OS | build-id | profile | verified |
 |---|---|---|---|---|
 | Gen2 (Live III, One G2, Key G2) | 3.10.1 official, `3.10.1.12 (f088e9c8427)` | `8b28179d…b837` | `src/profiles_a64.h` | `check` and on a Live III (device) |
-| Gen1 MPC (Live, Live II, One, X, Key 61/37) | 3.10.1, `3.10.1.12 (f088e9c8427)` | `851d050e…53d4` | `src/profiles_a32.h` | `check` and qemu tests; emulator (compat suite); no device yet |
-| Force | 3.10.1 final, same version note, snapshot 20261107130300 | `1d935334…e4e0` | `src/profiles_a32.h` | `check` and qemu tests; no device yet |
+| Gen1 MPC (Live, Live II, One, X, Key 61/37) | 3.10.1, `3.10.1.12 (f088e9c8427)` | `851d050e…53d4` | `src/profiles_a32.h` | `check`, qemu tests, installs on the real binary (`real_mpc_test.sh`); no device yet |
+| Force | 3.10.1 final, same version note, snapshot 20261107130300 | `1d935334…e4e0` | `src/profiles_a32.h` | `check`, qemu tests, installs on the real binary (`real_mpc_test.sh`); no device yet |
 
 3.10.1 is the minimum on both generations. The Force's 3.10.1.8 pre-release is a different build and is refused.
 
@@ -58,6 +58,7 @@ modeslot/build.sh arm      # src/modeslot-armv7.so, Gen1 MPC and Force (Docker a
 modeslot/build.sh test     # aarch64 tests under qemu (Docker binfmt)
 modeslot/build.sh test32   # the same scenarios on 32-bit ARM
 modeslot/build.sh check <MPC binary>   # the profile against a firmware binary on disk (Gen2, Gen1 MPC or Force: by the ELF type)
+modeslot/real_mpc_test.sh <update.img> installed|refused   # the REAL MPC from an Akai update image, with the shim preloaded
 python3 modeslot/make_page.py page.png; python3 modeslot/make_page.py --icon icon.png modeslot/addin/openmpc-logo.png
 ```
 - **Sources.** `modeslot.c` (installation, shared), `page_host.c` (the live page host, shared), and per architecture: `arch_a64.c`
@@ -90,6 +91,11 @@ python3 modeslot/make_page.py page.png; python3 modeslot/make_page.py --icon ico
   `TouchDummyPage`'s vtable, its Component sub-vtable holds the mouse slots, the wrapper vtable is `TouchPageContainer`'s, the page
   holder's offsets match the touch UI's code, and the Component layout constants match what `setBounds`, `repaint` and
   `getFromMemory` read. A wrong value in the profile is reported (six mutations tried).
+- **`real_mpc_test.sh`** unpacks an Akai update image (its root filesystem; nothing is kept or committed), runs its real `MPC` in a
+  chroot under user-mode emulation with the shim preloaded, and checks what the shim says and that MPC's own startup still runs
+  (it stops later for lack of a display). It exercises, on the real binary, the build-id gate, every entry instruction, the jump
+  tables, the trampolines and the patching. Results, 2026-11-24: Gen2 3.10.1, Gen1 3.10.1 and Force 3.10.1 `installed`; Gen2 3.10.0,
+  Gen1 3.9.1 and the Force's 3.10.1.8 `refused`.
 - **Not tested offline:** MPC's real code paths. The compat suite (open-mpc/mpc-compat-tests, `modeslot_addin`, `modeslot_app`)
   runs the release zips on the real firmware under emulation.
 
