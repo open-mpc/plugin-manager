@@ -1389,6 +1389,38 @@ static void show_patch_result(mgr_t *m) {   /* called with m->mu held, after pat
 /* Before APPLY of a patch with also_installs on this CPU: check each named patch and install or update it (`install --confirmed`, while
  * MPC still runs: they never restart it), so the main patch never goes on without it. 0 when all are in place; else the status line
  * says why and the main patch is not run. Their cards show the new state. */
+static int ensure_patch(mgr_t *m, const patch_t *c, const char *forwhat) {   /* one named patch in place (installed or updated), 0 when it is */
+    char file[300], log[300], state[24] = "error", reason[100] = "";
+    int sup = 0;
+    snprintf(file, sizeof file, WORK "/patch-%s.sh", c->id);
+    snprintf(log, sizeof log, WORK "/patch-%s.log", c->id);
+    const char *why = patch_script(m, c, file);
+    if (why) { say(m, ERR, "%s needs \"%s\": %s. Nothing was changed.", forwhat, c->title, why); return -1; }
+    patch_status(m, c, file, state, sizeof state, &sup, reason, sizeof reason);
+    if (strcmp(state, "patched")) {
+        if (!sup || (strcmp(state, "stock") && strcmp(state, "old-patch"))) {
+            unlink(file); patch_store(m, c->id, state, sup, reason);
+            say(m, ERR, "%s needs \"%s\", which this MPC cannot take (%s). Nothing was changed.", forwhat, c->title, reason[0] ? reason : state);
+            return -1;
+        }
+        say(m, OK, "Installing \"%s\" first (%s needs it)\xe2\x80\xa6", c->title, forwhat);
+        int rc = patch_run(file, "install", "--confirmed", 180, WORK "/patch-out.txt");
+        char *out = slurp(WORK "/patch-out.txt", 16384);
+        if (out) { FILE *lf = fopen(log, "w"); if (lf) { fputs(out, lf); fclose(lf); } free(out); }
+        unlink(WORK "/patch-out.txt");
+        patch_status(m, c, file, state, sizeof state, &sup, reason, sizeof reason);
+        logf_("patch %s (for %s) install: exit %d, now %s", c->id, forwhat, rc, state);
+    }
+    unlink(file);
+    patch_store(m, c->id, state, sup, reason);
+    if (strcmp(state, "patched")) {
+        say(m, ERR, "%s needs \"%s\", and installing it did not finish (now %s; log " WORK "/patch-%s.log). %s was not applied.", forwhat,
+            c->title, state, c->id, forwhat);
+        return -1;
+    }
+    return 0;
+}
+
 static int companions_first(mgr_t *m, const patch_t *p) {
     int idx[4];
     pthread_mutex_lock(&m->mu);
@@ -1397,37 +1429,27 @@ static int companions_first(mgr_t *m, const patch_t *p) {
     for (int i = 0; i < n; i++) c[i] = m->pt[idx[i]];
     pthread_mutex_unlock(&m->mu);
     if (n < 0) { say(m, ERR, "%s: a patch it needs on this MPC is missing from the list. Nothing was changed.", p->title); return -1; }
-    for (int i = 0; i < n; i++) {
-        char file[300], log[300], state[24] = "error", reason[100] = "";
-        int sup = 0;
-        snprintf(file, sizeof file, WORK "/patch-%s.sh", c[i].id);
-        snprintf(log, sizeof log, WORK "/patch-%s.log", c[i].id);
-        const char *why = patch_script(m, &c[i], file);
-        if (why) { say(m, ERR, "%s needs \"%s\": %s. Nothing was changed.", p->title, c[i].title, why); return -1; }
-        patch_status(m, &c[i], file, state, sizeof state, &sup, reason, sizeof reason);
-        if (strcmp(state, "patched")) {
-            if (!sup || (strcmp(state, "stock") && strcmp(state, "old-patch"))) {
-                unlink(file); patch_store(m, c[i].id, state, sup, reason);
-                say(m, ERR, "%s needs \"%s\", which this MPC cannot take (%s). Nothing was changed.", p->title, c[i].title, reason[0] ? reason : state);
-                return -1;
-            }
-            say(m, OK, "Installing \"%s\" first (%s needs it)\xe2\x80\xa6", c[i].title, p->title);
-            int rc = patch_run(file, "install", "--confirmed", 180, WORK "/patch-out.txt");
-            char *out = slurp(WORK "/patch-out.txt", 16384);
-            if (out) { FILE *lf = fopen(log, "w"); if (lf) { fputs(out, lf); fclose(lf); } free(out); }
-            unlink(WORK "/patch-out.txt");
-            patch_status(m, &c[i], file, state, sizeof state, &sup, reason, sizeof reason);
-            logf_("patch %s (for %s) install: exit %d, now %s", c[i].id, p->id, rc, state);
-        }
-        unlink(file);
-        patch_store(m, c[i].id, state, sup, reason);
-        if (strcmp(state, "patched")) {
-            say(m, ERR, "%s needs \"%s\", and installing it did not finish (now %s; log " WORK "/patch-%s.log). %s was not applied.", p->title,
-                c[i].title, state, c[i].id, p->title);
-            return -1;
-        }
-    }
+    for (int i = 0; i < n; i++)
+        if (ensure_patch(m, &c[i], p->title)) return -1;
     return 0;
+}
+
+/* An addin queued to install on a Gen2 MPC (MPC OS 3.10: its LD_PRELOAD drop-in sits in /run and is gone after a reboot) needs the Addin
+ * Restore patch, or it silently stops loading at the next boot. Installed first, like a patch's also_installs, while MPC still runs (it
+ * never restarts MPC). 0 to go on. Not being able to install it does not stop the addin: the user is told it will not survive a reboot. */
+static void addin_restore_first(mgr_t *m, const pkg_t *q, int nq) {
+    int want = 0;
+    for (int i = 0; i < nq; i++) if (is_addin(&q[i]) && q[i].queued == Q_INSTALL) want = 1;
+    if (!want || strcmp(m->dev->arch, "aarch64")) return;
+    patch_t c = {0};
+    int found = 0;
+    pthread_mutex_lock(&m->mu);
+    for (int k = 0; k < m->npt; k++)
+        if (!strcmp(m->pt[k].id, "addin-restore") && !m->pt[k].restarts && m->pt[k].reversible && pt_arch_ok(m, &m->pt[k])) { c = m->pt[k]; found = 1; }
+    pthread_mutex_unlock(&m->mu);
+    if (!found) return;   /* no such patch in this list (or not for this CPU): nothing to add */
+    if (c.checked && !strcmp(c.state, "patched")) return;
+    if (ensure_patch(m, &c, "the addin")) say(m, WARN, "The addin will install, but without \"%s\" it is gone after a reboot.", c.title);
 }
 
 /* APPLY / UNDO: the script's own `install --confirmed` / `uninstall --confirmed` (it keeps its own backup and puts things back if it fails),
@@ -2891,6 +2913,7 @@ static void prepare(mgr_t *m, pkg_t *q) {
     const char *err = NULL;
     char why[300];
     int i;
+    addin_restore_first(m, q, nq);
     for (i = 0; i < nq && !err; i++) {
         pkg_t *p = &q[i];
         if (p->queued == Q_REGISTER) continue;   /* an entry is added from the folder's plugin-meta.xml: nothing to fetch */
