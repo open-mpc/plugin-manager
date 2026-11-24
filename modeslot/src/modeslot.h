@@ -107,6 +107,14 @@ struct omm_profile {
 
 // 1 once the slot turned out to be someone else's (every hook then passes through); for the tests.
 extern uint32_t omm_yield;
+// A second tile (Gen2): a launcher. Its own slot, name, icon and picture; entering it runs a command.
+// Off (omm_slot2_id == 0) unless /data/mpc-addins/launcher-tile/tile.conf (or OMM_TILE2_DIR) names it.
+extern uint32_t omm_slot2_id, omm_yield2;
+extern const char *omm_slot2_name;
+extern char omm_tile2_run[512];
+extern void (*omm_tile2_runner)(const char *cmd);
+uint32_t omm_pick_slot_except(uintptr_t base, const struct omm_profile *p, uint32_t except);
+int omm_tile2_config(const char *dir);
 // page_host.c
 void omm_live_setup(const struct omm_live_fns *f);
 void omm_paint_hook(void *page, void *g);

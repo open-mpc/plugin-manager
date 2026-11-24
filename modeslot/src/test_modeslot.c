@@ -98,6 +98,10 @@ void fake_icon_record(unsigned id, void *x8, unsigned long x1)
 
 int fails;
 
+static int runs;          // the launcher tile's command, recorded instead of run
+static char ran[64];
+static void tile_runner(const char *c) { runs++; snprintf(ran, sizeof ran, "%s", c); }
+
 static const char *name_of(unsigned id)
 {
     struct jstring s = {"(unset)", {0, 0}};
@@ -556,6 +560,87 @@ int main(void)
     CHECK(omm_yield == 1, "did not stand aside after finding a name for the slot");
     fake_slot_name = NULL;
     CHECK(!strcmp(name_of(0x2090), ""), "aside: our name came back");
+
+#if defined(__aarch64__)
+    // 8. The launcher tile: a second slot (0x2092) with its own name, icon and picture; entering it runs its command.
+    {
+        omm_yield = 0;
+        fake_slot_name = NULL;
+        char tdir[] = "/tmp/modeslot-tile-XXXXXX";
+        CHECK(mkdtemp(tdir) != NULL, "tile dir");
+        char tp[600];
+        snprintf(tp, sizeof tp, "%s/tile.conf", tdir);
+        FILE *tf = fopen(tp, "w");
+        fputs("# a launcher tile\nNAME=Engine\nRUN=echo started\n", tf);
+        fclose(tf);
+        const char tpng[] = "\x89PNG\r\n\x1a\n tile page", ticon[] = "\x89PNG\r\n\x1a\n tile icon";
+        snprintf(tp, sizeof tp, "%s/page.png", tdir);
+        tf = fopen(tp, "w"); fwrite(tpng, 1, sizeof tpng, tf); fclose(tf);
+        snprintf(tp, sizeof tp, "%s/icon.png", tdir);
+        tf = fopen(tp, "w"); fwrite(ticon, 1, sizeof ticon, tf); fclose(tf);
+        CHECK(omm_tile2_config(tdir) == 1 && !strcmp(omm_tile2_run, "echo started"), "tile.conf not read (run \"%s\")", omm_tile2_run);
+        omm_slot2_id = 0x2092; // what omm_install picks next to 0x2090
+        omm_slot2_name = "Engine";
+
+        CHECK(!strcmp(name_of(0x2092), "Engine"), "tile name: \"%s\"", name_of(0x2092));
+        CHECK(!strcmp(name_of(0x2090), "Plugin Manager"), "tile: slot 1 name \"%s\"", name_of(0x2090));
+        CHECK(!strcmp(name_of(0x2091), "Browser"), "tile: 0x2091 \"%s\"", name_of(0x2091));
+        for (int i = 0; i < 1000; i++)
+            if (strcmp(name_of(0x2090 + (i % 3)), i % 3 == 0 ? "Plugin Manager" : i % 3 == 1 ? "Browser" : "Engine")) { fails++; break; }
+
+        ncalls = 0;
+        CHECK(CALL_REG(&mgr, 0x2080, &modeB) == 0, "tile: registers clobbered (0x2080)");
+        CHECK(ncalls == 3 && calls[0].id == 0x2080 && calls[1].id == 0x2090 && calls[2].id == 0x2092 &&
+              calls[2].mgr == &mgr && calls[2].mode == &modeB, "tile 0x2080: %d calls, third id %#x", ncalls, calls[2].id);
+        ncalls = 0;
+        CHECK(CALL_REG(&mgr, 0x2084, &modeA) == 0 && ncalls == 1, "tile 0x2084: %d calls", ncalls);
+
+        int order, settings;
+        uint32_t ids[1] = {0x2091};
+        struct omm_mode_vec v = {ids, ids + 1, ids + 1};
+        CHECK(CALL_ORDER(&order, &v, &settings) == 0 && last_order.n == 3 && last_order.ids[1] == 0x2090 &&
+              last_order.ids[2] == 0x2092, "tile order: n %d", last_order.n);
+        uint32_t has1[2] = {0x2091, 0x2090};
+        struct omm_mode_vec w = {has1, has1 + 2, has1 + 2};
+        CHECK(CALL_ORDER(&order, &w, &settings) == 0 && last_order.n == 3 && last_order.ids[2] == 0x2092,
+              "tile order with slot 1 listed: n %d", last_order.n);
+        uint32_t both[2] = {0x2092, 0x2090};
+        struct omm_mode_vec x = {both, both + 2, both + 2};
+        CHECK(CALL_ORDER(&order, &x, &settings) == 0 && last_order.vec == &x, "tile order: both listed, not passed as is");
+
+        int iout3;
+        memset(&last_img, 0, sizeof last_img);
+        CHECK(CALL_ICON(0x2092, &iout3) == 0 && last_img.data && !memcmp(last_img.data, ticon, sizeof ticon) &&
+              last_img.x8 == &iout3, "tile icon not loaded (size %u)", last_img.size);
+
+        omm_tile2_runner = tile_runner;
+        mode(0x2080);
+        CHECK(image(placeholder, sizeof placeholder) == placeholder, "tile: Main Mode picture swapped");
+        mode(0x2092);
+        CHECK(runs == 1 && !strcmp(ran, "echo started"), "tile: entering did not run (%d, \"%s\")", runs, ran);
+        const void *got = image(placeholder, sizeof placeholder);
+        CHECK(got && !memcmp(got, tpng, sizeof tpng), "tile: page.png not swapped in");
+        CHECK(image(other, sizeof placeholder) == other, "tile: another picture swapped");
+        mode(0x3085); // a popup
+        mode(0x2092);
+        CHECK(runs == 1, "tile: ran again without leaving (%d)", runs);
+        mode(0x2080);
+        mode(0x2092);
+        CHECK(runs == 2, "tile: entering again did not run (%d)", runs);
+        mode(0x2080);
+
+        // Someone else registers the tile's slot: it stands aside, slot 1 does not.
+        CHECK(CALL_REG(&mgr, 0x2092, &modeA) == 0 && omm_yield2 == 1 && omm_yield == 0, "tile: did not stand aside alone");
+        CHECK(!strcmp(name_of(0x2092), ""), "tile aside: name \"%s\"", name_of(0x2092));
+        CHECK(!strcmp(name_of(0x2090), "Plugin Manager"), "tile aside: slot 1 lost its name");
+        ncalls = 0;
+        CHECK(CALL_REG(&mgr, 0x2080, &modeB) == 0 && ncalls == 2, "tile aside: still registered (%d)", ncalls);
+        mode(0x2092);
+        CHECK(runs == 2, "tile aside: still runs");
+        mode(0x2080);
+        omm_slot2_id = 0;
+    }
+#endif
 
     printf(fails ? "%d FAILED\n" : "all modeslot tests passed\n", fails);
     return fails != 0;

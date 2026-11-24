@@ -333,6 +333,8 @@ void omm_mode_hook_c(void *self, uint32_t id)
     if (id - 0x2080u < 0x80u) {
         uint32_t prev = omm_cur_mode;
         omm_cur_mode = id;
+        if (omm_slot2_id && !omm_yield2 && id == omm_slot2_id && prev != omm_slot2_id && omm_tile2_run[0])
+            omm_tile2_runner(omm_tile2_run);   // the launcher tile: entering it starts its command
         if (!omm_yield && omm_slot_id) {
             if (id == omm_slot_id) {
                 if (prev != omm_slot_id) {
