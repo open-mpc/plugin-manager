@@ -571,7 +571,7 @@ int main(void)
         char tp[600];
         snprintf(tp, sizeof tp, "%s/tile.conf", tdir);
         FILE *tf = fopen(tp, "w");
-        fputs("# a launcher tile\nNAME=Engine\nRUN=echo started\n", tf);
+        fputs("# a launcher tile\nNAME=Tile A\nRUN=echo started\n", tf);
         fclose(tf);
         const char tpng[] = "\x89PNG\r\n\x1a\n tile page", ticon[] = "\x89PNG\r\n\x1a\n tile icon";
         snprintf(tp, sizeof tp, "%s/page.png", tdir);
@@ -580,13 +580,13 @@ int main(void)
         tf = fopen(tp, "w"); fwrite(ticon, 1, sizeof ticon, tf); fclose(tf);
         CHECK(omm_tile2_config(tdir) == 1 && !strcmp(omm_tile2_run, "echo started"), "tile.conf not read (run \"%s\")", omm_tile2_run);
         omm_slot2_id = 0x2092; // what omm_install picks next to 0x2090
-        omm_slot2_name = "Engine";
+        omm_slot2_name = "Tile A";
 
-        CHECK(!strcmp(name_of(0x2092), "Engine"), "tile name: \"%s\"", name_of(0x2092));
+        CHECK(!strcmp(name_of(0x2092), "Tile A"), "tile name: \"%s\"", name_of(0x2092));
         CHECK(!strcmp(name_of(0x2090), "Plugin Manager"), "tile: slot 1 name \"%s\"", name_of(0x2090));
         CHECK(!strcmp(name_of(0x2091), "Browser"), "tile: 0x2091 \"%s\"", name_of(0x2091));
         for (int i = 0; i < 1000; i++)
-            if (strcmp(name_of(0x2090 + (i % 3)), i % 3 == 0 ? "Plugin Manager" : i % 3 == 1 ? "Browser" : "Engine")) { fails++; break; }
+            if (strcmp(name_of(0x2090 + (i % 3)), i % 3 == 0 ? "Plugin Manager" : i % 3 == 1 ? "Browser" : "Tile A")) { fails++; break; }
 
         ncalls = 0;
         CHECK(CALL_REG(&mgr, 0x2080, &modeB) == 0, "tile: registers clobbered (0x2080)");
@@ -644,7 +644,7 @@ int main(void)
         char tdir3[] = "/tmp/modeslot-tile3-XXXXXX";
         CHECK(mkdtemp(tdir3) != NULL, "tile 3 dir");
         snprintf(tp, sizeof tp, "%s/tile.conf", tdir3);
-        tf = fopen(tp, "w"); fputs("NAME=Melodee\nRUN=echo second\n", tf); fclose(tf);
+        tf = fopen(tp, "w"); fputs("NAME=Tile B\nRUN=echo second\n", tf); fclose(tf);
         const char t3png[] = "\x89PNG\r\n\x1a\n tile3 page", t3icon[] = "\x89PNG\r\n\x1a\n tile3 icon";
         snprintf(tp, sizeof tp, "%s/page.png", tdir3);
         tf = fopen(tp, "w"); fwrite(t3png, 1, sizeof t3png, tf); fclose(tf);
@@ -653,10 +653,10 @@ int main(void)
         CHECK(omm_tile_config(tdir3, 3) == 1 && !strcmp(omm_tile3_run, "echo second"), "tile 3 conf (run \"%s\")", omm_tile3_run);
         CHECK(!strcmp(omm_tile2_run, "echo started"), "tile 3 conf overwrote tile 2's run: \"%s\"", omm_tile2_run);
         omm_slot3_id = 0x2099;
-        omm_slot3_name = "Melodee";
+        omm_slot3_name = "Tile B";
 
-        CHECK(!strcmp(name_of(0x2099), "Melodee"), "tile 3 name: \"%s\"", name_of(0x2099));
-        CHECK(!strcmp(name_of(0x2092), "Engine"), "tile 2 name with 3: \"%s\"", name_of(0x2092));
+        CHECK(!strcmp(name_of(0x2099), "Tile B"), "tile 3 name: \"%s\"", name_of(0x2099));
+        CHECK(!strcmp(name_of(0x2092), "Tile A"), "tile 2 name with 3: \"%s\"", name_of(0x2092));
         CHECK(!strcmp(name_of(0x2090), "Plugin Manager"), "slot 1 name with 3: \"%s\"", name_of(0x2090));
         ncalls = 0;
         CHECK(CALL_REG(&mgr, 0x2080, &modeB) == 0 && ncalls == 4 && calls[3].id == 0x2099 && calls[3].mode == &modeB,
@@ -684,7 +684,7 @@ int main(void)
         // The second tile stands aside on its own.
         CHECK(CALL_REG(&mgr, 0x2099, &modeA) == 0 && omm_yield3 == 1 && omm_yield2 == 0 && omm_yield == 0,
               "tile 3: did not stand aside alone");
-        CHECK(!strcmp(name_of(0x2099), "") && !strcmp(name_of(0x2092), "Engine"), "tile 3 aside: names");
+        CHECK(!strcmp(name_of(0x2099), "") && !strcmp(name_of(0x2092), "Tile A"), "tile 3 aside: names");
         CHECK(CALL_ORDER(&order, &v3, &settings) == 0 && last_order.n == 3, "tile 3 aside: still in the MENU list");
         omm_slot2_id = omm_slot3_id = 0;
     }
