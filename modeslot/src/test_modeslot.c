@@ -638,7 +638,55 @@ int main(void)
         mode(0x2092);
         CHECK(runs == 2, "tile aside: still runs");
         mode(0x2080);
-        omm_slot2_id = 0;
+
+        // 9. Two launcher tiles: the second in the third free slot (0x2099), from its own folder.
+        omm_yield2 = 0;
+        char tdir3[] = "/tmp/modeslot-tile3-XXXXXX";
+        CHECK(mkdtemp(tdir3) != NULL, "tile 3 dir");
+        snprintf(tp, sizeof tp, "%s/tile.conf", tdir3);
+        tf = fopen(tp, "w"); fputs("NAME=Melodee\nRUN=echo second\n", tf); fclose(tf);
+        const char t3png[] = "\x89PNG\r\n\x1a\n tile3 page", t3icon[] = "\x89PNG\r\n\x1a\n tile3 icon";
+        snprintf(tp, sizeof tp, "%s/page.png", tdir3);
+        tf = fopen(tp, "w"); fwrite(t3png, 1, sizeof t3png, tf); fclose(tf);
+        snprintf(tp, sizeof tp, "%s/icon.png", tdir3);
+        tf = fopen(tp, "w"); fwrite(t3icon, 1, sizeof t3icon, tf); fclose(tf);
+        CHECK(omm_tile_config(tdir3, 3) == 1 && !strcmp(omm_tile3_run, "echo second"), "tile 3 conf (run \"%s\")", omm_tile3_run);
+        CHECK(!strcmp(omm_tile2_run, "echo started"), "tile 3 conf overwrote tile 2's run: \"%s\"", omm_tile2_run);
+        omm_slot3_id = 0x2099;
+        omm_slot3_name = "Melodee";
+
+        CHECK(!strcmp(name_of(0x2099), "Melodee"), "tile 3 name: \"%s\"", name_of(0x2099));
+        CHECK(!strcmp(name_of(0x2092), "Engine"), "tile 2 name with 3: \"%s\"", name_of(0x2092));
+        CHECK(!strcmp(name_of(0x2090), "Plugin Manager"), "slot 1 name with 3: \"%s\"", name_of(0x2090));
+        ncalls = 0;
+        CHECK(CALL_REG(&mgr, 0x2080, &modeB) == 0 && ncalls == 4 && calls[3].id == 0x2099 && calls[3].mode == &modeB,
+              "tile 3 controller: %d calls", ncalls);
+        uint32_t one[1] = {0x2091};
+        struct omm_mode_vec v3 = {one, one + 1, one + 1};
+        CHECK(CALL_ORDER(&order, &v3, &settings) == 0 && last_order.n == 4 && last_order.ids[1] == 0x2090 &&
+              last_order.ids[2] == 0x2092 && last_order.ids[3] == 0x2099, "tile 3 order: n %d", last_order.n);
+        memset(&last_img, 0, sizeof last_img);
+        CHECK(CALL_ICON(0x2099, &iout3) == 0 && last_img.data && !memcmp(last_img.data, t3icon, sizeof t3icon),
+              "tile 3 icon not loaded");
+        memset(&last_img, 0, sizeof last_img);
+        CHECK(CALL_ICON(0x2092, &iout3) == 0 && last_img.data && !memcmp(last_img.data, ticon, sizeof ticon),
+              "tile 2 icon with 3");
+        runs = 0;
+        mode(0x2099);
+        CHECK(runs == 1 && !strcmp(ran, "echo second"), "tile 3: entering ran %d \"%s\"", runs, ran);
+        got = image(placeholder, sizeof placeholder);
+        CHECK(got && !memcmp(got, t3png, sizeof t3png), "tile 3: its page.png not swapped in");
+        mode(0x2092);
+        CHECK(runs == 2 && !strcmp(ran, "echo started"), "tile 2 after 3: ran %d \"%s\"", runs, ran);
+        got = image(placeholder, sizeof placeholder);
+        CHECK(got && !memcmp(got, tpng, sizeof tpng), "tile 2 after 3: wrong picture");
+        mode(0x2080);
+        // The second tile stands aside on its own.
+        CHECK(CALL_REG(&mgr, 0x2099, &modeA) == 0 && omm_yield3 == 1 && omm_yield2 == 0 && omm_yield == 0,
+              "tile 3: did not stand aside alone");
+        CHECK(!strcmp(name_of(0x2099), "") && !strcmp(name_of(0x2092), "Engine"), "tile 3 aside: names");
+        CHECK(CALL_ORDER(&order, &v3, &settings) == 0 && last_order.n == 3, "tile 3 aside: still in the MENU list");
+        omm_slot2_id = omm_slot3_id = 0;
     }
 #endif
 

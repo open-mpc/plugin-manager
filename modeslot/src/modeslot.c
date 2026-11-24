@@ -118,6 +118,16 @@ const void *omm_icon2_data;
 uint32_t omm_icon2_size;
 char omm_tile2_run[512];
 static char tile2_name[64];
+// A second launcher tile in the third free slot (<launcher-tile>-2): the same, under its own names.
+uint32_t omm_slot3_id;
+const char *omm_slot3_name;
+uint32_t omm_yield3;
+const void *omm_png3_data;
+uint32_t omm_png3_size;
+const void *omm_icon3_data;
+uint32_t omm_icon3_size;
+char omm_tile3_run[512];
+static char tile3_name[64];
 
 #if defined(__aarch64__)
 #include "profiles_a64.h"
@@ -207,9 +217,14 @@ uint32_t omm_pick_slot(uintptr_t base, const struct omm_profile *p) { return omm
 
 uint32_t omm_pick_slot_except(uintptr_t base, const struct omm_profile *p, uint32_t except)
 {
+    return omm_pick_slot_except2(base, p, except, except);
+}
+
+uint32_t omm_pick_slot_except2(uintptr_t base, const struct omm_profile *p, uint32_t a, uint32_t b)
+{
     for (int i = 0; i < 4 && p->candidates[i]; i++) {
         uint32_t id = p->candidates[i];
-        if (id == except) continue;
+        if (id == a || id == b) continue;
         if (omm_arch_table_default(base, p->name_table, p->name_table_base, p->name_default, p->table_len, id) &&
             omm_arch_table_default(base, p->page_table, p->page_table_base, p->page_default, p->table_len, id))
             return id;
@@ -286,6 +301,8 @@ const char *omm_install(uintptr_t base, const struct omm_profile *p, int check_s
     omm_ctor = (uintptr_t)ctor;
 #if defined(__aarch64__) // hook.S knows the second slot; the 32-bit hooks do not (yet)
     if (tile2_name[0] && (omm_slot2_id = omm_pick_slot_except(base, p, slot)) != 0) omm_slot2_name = tile2_name;
+    if (tile3_name[0] && omm_slot2_id && (omm_slot3_id = omm_pick_slot_except2(base, p, slot, omm_slot2_id)) != 0)
+        omm_slot3_name = tile3_name;
 #endif
     omm_slot_id = slot;
     omm_slot_name = p->slot_name;
@@ -340,17 +357,18 @@ void omm_order_hook(void *order, const struct omm_mode_vec *modes, void *setting
         orig(order, modes, settings);
         return;
     }
-    int add1 = 1, add2 = omm_slot2_id && !omm_yield2;
+    int add1 = 1, add2 = omm_slot2_id && !omm_yield2, add3 = omm_slot3_id && !omm_yield3;
     for (size_t i = 0; i < n; i++) { // already in MPC's list: not ours to add
         if (modes->begin[i] == omm_slot_id) add1 = 0;
         if (modes->begin[i] == omm_slot2_id) add2 = 0;
+        if (modes->begin[i] == omm_slot3_id) add3 = 0;
     }
-    if (!add1 && !add2) {
+    if (!add1 && !add2 && !add3) {
         orig(order, modes, settings);
         return;
     }
     // MPC copies the list (ModeMenuOrderImpl), so a temporary is enough.
-    uint32_t *buf = malloc((n + 2) * sizeof *buf);
+    uint32_t *buf = malloc((n + 3) * sizeof *buf);
     if (!buf) {
         orig(order, modes, settings);
         return;
@@ -359,6 +377,7 @@ void omm_order_hook(void *order, const struct omm_mode_vec *modes, void *setting
     size_t m = n;
     if (add1) buf[m++] = omm_slot_id;
     if (add2) buf[m++] = omm_slot2_id;
+    if (add3) buf[m++] = omm_slot3_id;
     struct omm_mode_vec v = {buf, buf + m, buf + m};
     orig(order, &v, settings);
     free(buf);
@@ -412,34 +431,35 @@ static void run_detached(const char *cmd)
         _exit(0);
     }
     (void)waitpid(pid, NULL, 0);
-    fprintf(stderr, "modeslot: tile \"%s\": ran %s\n", omm_slot2_name ? omm_slot2_name : "", cmd);
+    fprintf(stderr, "modeslot: launcher tile ran %s\n", cmd);
 }
 void (*omm_tile2_runner)(const char *cmd) = run_detached;
 
 // <dir>/tile.conf: NAME=<tile name> and RUN=<command>, one per line (# comments); icon.png and page.png beside
-// it. Returns 1 when a tile is configured.
-int omm_tile2_config(const char *dir)
+// it. Tile 2 is the first launcher tile, 3 the second. Returns 1 when the tile is configured.
+int omm_tile_config(const char *dir, int which)
 {
+    char *name = which == 3 ? tile3_name : tile2_name, *run = which == 3 ? omm_tile3_run : omm_tile2_run;
     char path[600], line[600];
     snprintf(path, sizeof path, "%s/tile.conf", dir);
     FILE *f = fopen(path, "r");
     if (!f) return 0;
-    tile2_name[0] = 0;
-    omm_tile2_run[0] = 0;
+    name[0] = 0;
+    run[0] = 0;
     while (fgets(line, sizeof line, f)) {
         line[strcspn(line, "\r\n")] = 0;
-        char *v;
-        if (!strncmp(line, "NAME=", 5)) v = line + 5, snprintf(tile2_name, sizeof tile2_name, "%.63s", v);
-        else if (!strncmp(line, "RUN=", 4)) v = line + 4, snprintf(omm_tile2_run, sizeof omm_tile2_run, "%.511s", v);
+        if (!strncmp(line, "NAME=", 5)) snprintf(name, 64, "%.63s", line + 5);
+        else if (!strncmp(line, "RUN=", 4)) snprintf(run, 512, "%.511s", line + 4);
     }
     fclose(f);
-    if (!tile2_name[0]) return 0;
+    if (!name[0]) return 0;
     snprintf(path, sizeof path, "%s/page.png", dir);
-    load_png(path, &omm_png2_data, &omm_png2_size);
+    load_png(path, which == 3 ? &omm_png3_data : &omm_png2_data, which == 3 ? &omm_png3_size : &omm_png2_size);
     snprintf(path, sizeof path, "%s/icon.png", dir);
-    load_png(path, &omm_icon2_data, &omm_icon2_size);
+    load_png(path, which == 3 ? &omm_icon3_data : &omm_icon2_data, which == 3 ? &omm_icon3_size : &omm_icon2_size);
     return 1;
 }
+int omm_tile2_config(const char *dir) { return omm_tile_config(dir, 2); }
 size_t omm_load_icon(const char *path) { return load_png(path, &omm_icon_data, &omm_icon_size); }
 
 static int exe_is_mpc(void)
@@ -485,8 +505,9 @@ __attribute__((constructor)) static void omm_init(void)
         const char *ipath = getenv("OMM_ICON_PNG");
         if (!ipath || !*ipath) ipath = dicon;
         size_t icon = p->mode_icon.addr ? omm_load_icon(ipath) : 0;
-        const char *tdir = getenv("OMM_TILE2_DIR");
-        int tile2 = omm_tile2_config(tdir && *tdir ? tdir : "/data/mpc-addins/launcher-tile");
+        const char *tdir = getenv("OMM_TILE2_DIR"), *tdir3 = getenv("OMM_TILE3_DIR");
+        int tile2 = omm_tile_config(tdir && *tdir ? tdir : "/data/mpc-addins/launcher-tile", 2);
+        int tile3 = omm_tile_config(tdir3 && *tdir3 ? tdir3 : "/data/mpc-addins/launcher-tile-2", 3);
         const char *err = omm_install(base, p, 1);
         if (err) {
             say("refused (%s): %s", hex, err);
@@ -498,13 +519,16 @@ __attribute__((constructor)) static void omm_init(void)
                 p->register_mode.addr ? "Main Mode" : "", png ? path : "none (placeholder)", png,
                 icon ? ipath : "none", icon);
         if (p->menu_order.addr) fprintf(stderr, "modeslot: MENU grid may hold the slot (ModeMenuPage<p>Slot<s> = \"%s\")\n", p->slot_name);
-        if (tile2)
-        {
+        for (int t = 2; t <= 3; t++) {
+            if (!(t == 2 ? tile2 : tile3)) continue;
+            uint32_t id = t == 2 ? omm_slot2_id : omm_slot3_id;
             char where[32];
-            if (omm_slot2_id) snprintf(where, sizeof where, "slot %#x", (unsigned)omm_slot2_id);
-            else snprintf(where, sizeof where, "no second free slot");
-            fprintf(stderr, "modeslot: launcher tile \"%s\": %s, page %u bytes, icon %u bytes, runs: %s\n", tile2_name, where,
-                    omm_png2_size, omm_icon2_size, omm_tile2_run[0] ? omm_tile2_run : "(nothing)");
+            if (id) snprintf(where, sizeof where, "slot %#x", (unsigned)id);
+            else snprintf(where, sizeof where, "no free slot left");
+            fprintf(stderr, "modeslot: launcher tile \"%s\": %s, page %u bytes, icon %u bytes, runs: %s\n",
+                    t == 2 ? tile2_name : tile3_name, where, t == 2 ? omm_png2_size : omm_png3_size,
+                    t == 2 ? omm_icon2_size : omm_icon3_size,
+                    (t == 2 ? omm_tile2_run : omm_tile3_run)[0] ? (t == 2 ? omm_tile2_run : omm_tile3_run) : "(nothing)");
         }
         start_app(dir);
         return;

@@ -17,15 +17,25 @@ omm_hook:
     ldr     w16, [x16, :lo12:omm_slot_id]
     cmp     w0, w16
     b.eq    10f
-    adrp    x16, omm_slot2_id           // the launcher tile's slot (0 = none)
+    adrp    x16, omm_slot2_id           // the launcher tiles' slots (0 = none)
     ldr     w16, [x16, :lo12:omm_slot2_id]
-    cbz     w16, 1f
+    cbz     w16, 12f
     cmp     w0, w16
-    b.ne    1f
+    b.ne    12f
     adrp    x9, omm_yield2
     add     x9, x9, :lo12:omm_yield2
     adrp    x10, omm_slot2_name
     add     x10, x10, :lo12:omm_slot2_name
+    b       20f
+12: adrp    x16, omm_slot3_id
+    ldr     w16, [x16, :lo12:omm_slot3_id]
+    cbz     w16, 1f
+    cmp     w0, w16
+    b.ne    1f
+    adrp    x9, omm_yield3
+    add     x9, x9, :lo12:omm_yield3
+    adrp    x10, omm_slot3_name
+    add     x10, x10, :lo12:omm_slot3_name
     b       20f
 10: adrp    x9, omm_yield
     add     x9, x9, :lo12:omm_yield
@@ -99,7 +109,15 @@ omm_reg_hook:
     adrp    x16, omm_yield2
     mov     w17, #1
     str     w17, [x16, :lo12:omm_yield2]
-7:  mov     x0, x19
+7:  adrp    x16, omm_slot3_id
+    ldr     w16, [x16, :lo12:omm_slot3_id]
+    cbz     w16, 5f
+    cmp     w20, w16
+    b.ne    5f
+    adrp    x16, omm_yield3
+    mov     w17, #1
+    str     w17, [x16, :lo12:omm_yield3]
+5:  mov     x0, x19
     mov     w1, w20
     mov     x2, x21
     adrp    x16, omm_reg_tramp_addr
@@ -134,7 +152,22 @@ omm_reg_hook:
     adrp    x16, omm_reg_tramp_addr
     ldr     x16, [x16, :lo12:omm_reg_tramp_addr]
     blr     x16
-9:  ldr     x21, [sp, #32]
+9:  adrp    x16, omm_alias_from         // and the second launcher tile's
+    ldr     w16, [x16, :lo12:omm_alias_from]
+    cmp     w20, w16
+    b.ne    8f
+    adrp    x16, omm_slot3_id
+    ldr     w1, [x16, :lo12:omm_slot3_id]
+    cbz     w1, 8f
+    adrp    x16, omm_yield3
+    ldr     w16, [x16, :lo12:omm_yield3]
+    cbnz    w16, 8f
+    mov     x0, x19
+    mov     x2, x21
+    adrp    x16, omm_reg_tramp_addr
+    ldr     x16, [x16, :lo12:omm_reg_tramp_addr]
+    blr     x16
+8:  ldr     x21, [sp, #32]
     ldp     x19, x20, [sp, #16]
     ldp     x29, x30, [sp], #48
     autiasp
@@ -178,7 +211,32 @@ omm_img_hook:
     ldr     x0, [x16, :lo12:omm_png2_data]
     mov     w1, w17
     b       4f
-30: adrp    x16, omm_yield
+30: adrp    x16, omm_slot3_id           // the second launcher tile's slot
+    ldr     w16, [x16, :lo12:omm_slot3_id]
+    cbz     w16, 31f
+    adrp    x17, omm_cur_mode
+    ldr     w17, [x17, :lo12:omm_cur_mode]
+    cmp     w16, w17
+    b.ne    31f
+    adrp    x16, omm_yield3
+    ldr     w16, [x16, :lo12:omm_yield3]
+    cbnz    w16, 4f
+    adrp    x16, omm_dummy_size
+    ldr     w16, [x16, :lo12:omm_dummy_size]
+    cmp     w1, w16
+    b.ne    4f
+    adrp    x16, omm_dummy_data
+    ldr     x16, [x16, :lo12:omm_dummy_data]
+    cmp     x0, x16
+    b.ne    4f
+    adrp    x17, omm_png3_size
+    ldr     w17, [x17, :lo12:omm_png3_size]
+    cbz     w17, 4f
+    adrp    x16, omm_png3_data
+    ldr     x0, [x16, :lo12:omm_png3_data]
+    mov     w1, w17
+    b       4f
+31: adrp    x16, omm_yield
     ldr     w16, [x16, :lo12:omm_yield]
     cbnz    w16, 4f
     adrp    x16, omm_cur_mode
@@ -243,7 +301,24 @@ omm_icon_hook:
     adrp    x16, omm_img_tramp_addr
     ldr     x16, [x16, :lo12:omm_img_tramp_addr]
     br      x16
-40: adrp    x16, omm_yield
+40: adrp    x16, omm_slot3_id           // the second launcher tile's slot
+    ldr     w16, [x16, :lo12:omm_slot3_id]
+    cbz     w16, 41f
+    cmp     w0, w16
+    b.ne    41f
+    adrp    x16, omm_yield3
+    ldr     w16, [x16, :lo12:omm_yield3]
+    cbnz    w16, 5f
+    adrp    x17, omm_icon3_size
+    ldr     w17, [x17, :lo12:omm_icon3_size]
+    cbz     w17, 5f
+    adrp    x16, omm_icon3_data
+    ldr     x0, [x16, :lo12:omm_icon3_data]
+    mov     w1, w17
+    adrp    x16, omm_img_tramp_addr
+    ldr     x16, [x16, :lo12:omm_img_tramp_addr]
+    br      x16
+41: adrp    x16, omm_yield
     ldr     w16, [x16, :lo12:omm_yield]
     cbnz    w16, 5f
     adrp    x16, omm_slot_id

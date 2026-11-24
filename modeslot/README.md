@@ -51,6 +51,16 @@ Six hooks. Each one checks its function's first four instructions before anythin
 - **Supported:** the profiles in the table at the top (Gen2 official 3.10.1, md5 `b24b7955…`; Gen1 MPC 3.10.1; Force 3.10.1). Every other build is refused, including the Force's 3.10.1.8.
 - **The drum-pad copy** (md5 `b4283ece`) keeps the build-id. It changes only these byte ranges: `0x17b20a9..0x17b417d` (six single bytes), `0x2c549c4..0x2c549cf`, `0x2c54bb0..0x2c54bb3` and `0x7b100f0..0x7b101b2`. None of them touches the five hook sites, the placeholder PNG or its pointer. v1 loaded on it (device).
 
+## Launcher tiles (Gen2)
+Besides its own slot, the shim can add up to two launcher tiles in the other free slots. A launcher tile has a name, an icon and a picture, and no live page: entering it runs a command, as a systemd service of its own (so a command that stops MPC is not stopped with it). Each tile is a folder:
+
+| Folder | Tile |
+| --- | --- |
+| `/data/mpc-addins/launcher-tile/` (`OMM_TILE2_DIR`) | the first, in the second free slot |
+| `/data/mpc-addins/launcher-tile-2/` (`OMM_TILE3_DIR`) | the second, in the third |
+
+`tile.conf` holds `NAME=` (the tile's name in MENU) and `RUN=` (the command); `icon.png` (70x70) and `page.png` (shown while the command starts) are optional. With no folder, the shim behaves as without this feature. Each tile stands aside on its own if MPC or another mod takes its slot. Not on 32-bit firmware yet.
+
 ## Build and test (offline)
 ```
 modeslot/build.sh          # src/modeslot.so, Gen2 (Docker arm64v8/gcc:12-bookworm; needs GLIBC_2.34, MPC 3.10.1 has 2.39)

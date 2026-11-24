@@ -113,7 +113,12 @@ extern uint32_t omm_slot2_id, omm_yield2;
 extern const char *omm_slot2_name;
 extern char omm_tile2_run[512];
 extern void (*omm_tile2_runner)(const char *cmd);
+extern uint32_t omm_slot3_id, omm_yield3;   // the second launcher tile: /data/mpc-addins/launcher-tile-2 (OMM_TILE3_DIR)
+extern const char *omm_slot3_name;
+extern char omm_tile3_run[512];
 uint32_t omm_pick_slot_except(uintptr_t base, const struct omm_profile *p, uint32_t except);
+uint32_t omm_pick_slot_except2(uintptr_t base, const struct omm_profile *p, uint32_t a, uint32_t b);
+int omm_tile_config(const char *dir, int which);   // which: 2 or 3
 int omm_tile2_config(const char *dir);
 // page_host.c
 void omm_live_setup(const struct omm_live_fns *f);
