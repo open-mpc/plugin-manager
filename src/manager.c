@@ -2897,19 +2897,27 @@ static const char *inspect_zip(const char *zip) {
 /* Download, check and unpack every queued package, then write apply.sh. Nothing on the device changes yet. */
 static void prepare(mgr_t *m, pkg_t *q) {
     int nq = 0;
+    /* packages left in WORK by an APPLY that failed or was cancelled take RAM that this one needs: their ids are taken under the
+     * lock, the folders removed after it (a shell per package, seconds on a slow MPC, with MPC's audio thread waiting on the lock) */
+    char (*gone)[64] = calloc(MAXPKG, sizeof *gone);   /* off the stack, and per instance: MPC may open the plugin more than once */
+    int ngone = 0;
     pthread_mutex_lock(&m->mu);
     for (int i = 0; i < m->npkg; i++) if (m->pkg[i].queued) q[nq++] = m->pkg[i];
     m->failed = 0;
-    /* packages left in WORK by an APPLY that failed or was cancelled take RAM that this one needs */
     for (int i = 0; i < m->npkg; i++)
-        if (!m->pkg[i].queued && safe(m->pkg[i].id)) {
-            char st[300];
-            snprintf(st, sizeof st, "rm -rf '" WORK "/%s' '" WORK "/%s.zip'", m->pkg[i].id, m->pkg[i].id);
-            sh(st);
-        }
+        if (gone && !m->pkg[i].queued && safe(m->pkg[i].id) && strlen(m->pkg[i].id) < sizeof gone[0]) snprintf(gone[ngone++], sizeof gone[0], "%s", m->pkg[i].id);
     m->downloading = 1;
     m->progress = 0;
     pthread_mutex_unlock(&m->mu);
+    for (int i = 0; i < ngone; i++) {
+        char st[300], d[200];
+        snprintf(d, sizeof d, WORK "/%s", gone[i]);
+        snprintf(st, sizeof st, "%s.zip", d);
+        if (!is_dir(d) && access(st, F_OK)) continue;   /* nothing left of it: no shell */
+        snprintf(st, sizeof st, "rm -rf '" WORK "/%s' '" WORK "/%s.zip'", gone[i], gone[i]);
+        sh(st);
+    }
+    free(gone);
     char path[512], cmd[1400];
     const char *err = NULL;
     char why[300];
@@ -3553,7 +3561,8 @@ static void changes_text(const mgr_t *m, char *b, int n) {   /* the restart prom
 
 /* the web page's address while one instance serves it (web.c), shared by every instance: the one on screen may not be the one
  * holding the port */
-static pthread_mutex_t web_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t web_mu;   /* priority-inheriting, as m->mu: made once by pi_mutex_init() (mgr_create) */
+static pthread_once_t web_mu_once = PTHREAD_ONCE_INIT;
 static char web_url[64];
 
 static void queue_text(const mgr_t *m, char *b, int n) {
@@ -3678,11 +3687,26 @@ static void *web_thread(void *ud);   /* web.c, included below the actions it cal
 
 /* ---- engine interface ---- */
 
+/* A lock that MPC's audio thread may wait on, priority-inheriting. The wrapper polls readouts from the audio thread (vst2_wrap.c,
+ * under its own lock, already priority-inheriting) and get_param takes m->mu; with a plain mutex here the chain stopped at m->mu,
+ * so the worker or web thread holding it (ordinary priority) could wait for a CPU while the audio thread waited for it. On a busy
+ * Gen1 under emulation that wait reached MPC's audio watchdog, which tries to stop the audio thread, cannot, kills it and aborts
+ * ("!! killing thread by force !!", "FATAL: exception not rethrown"): MPC went down mid-scenario. */
+static void pi_mutex_init(pthread_mutex_t *mu) {
+    pthread_mutexattr_t ma;
+    pthread_mutexattr_init(&ma);
+    pthread_mutexattr_setprotocol(&ma, PTHREAD_PRIO_INHERIT);
+    pthread_mutex_init(mu, &ma);
+    pthread_mutexattr_destroy(&ma);
+}
+static void web_mu_init(void) { pi_mutex_init(&web_mu); }
+
 static void *mgr_create(const char *data_dir) {
     (void)data_dir;
     mgr_t *m = calloc(1, sizeof *m);
     if (!m) return NULL;
-    pthread_mutex_init(&m->mu, NULL);
+    pi_mutex_init(&m->mu);
+    pthread_once(&web_mu_once, web_mu_init);
     pthread_cond_init(&m->cv, NULL);
     m->rows = ROWS_DEFAULT;
     m->sel = m->menu = -1;
