@@ -2927,7 +2927,10 @@ static void prepare(mgr_t *m, pkg_t *q) {
         pkg_t *p = &q[i];
         if (p->queued == Q_REGISTER) continue;   /* an entry is added from the folder's plugin-meta.xml: nothing to fetch */
         if (is_addin(p) && p->queued == Q_REMOVE) continue;   /* removed by the uninstall.sh in its folder: nothing to fetch */
-        if (!p->url[0] || strlen(p->sha) != 64 || !safe(p->id) || !safe(p->name)) { err = "has no download in the catalog"; break; }
+        /* the name is only shown (status lines, the update screen's names file), never put in apply.sh: a name with an apostrophe
+         * (Audity '78, DUST '87) installs like any other. Up to 2.1.0 it read as "has no download in the catalog" (plugin-manager #54) */
+        if (!p->url[0] || strlen(p->sha) != 64) { err = "has no download in the catalog"; break; }
+        if (!safe(p->id)) { err = "has an unsupported character in its id"; break; }
         snprintf(path, sizeof path, WORK "/%s.zip", p->id);
         /* WORK is RAM (small on a Force): the zip and its unpacked copy must fit beside what is already unpacked. Said plainly
          * instead of failing later as "could not be unpacked" (Force, 2026-11-18: REMOVE of every plugin filled /tmp) */
