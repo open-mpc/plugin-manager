@@ -1353,6 +1353,13 @@ static void papply_detached(mgr_t *m, const patch_t *p, int undo, const char *fi
     } else g_detached_at = time(NULL);
 }
 
+/* The title up to its first colon ("Auto exec: run plugins from...": "Auto exec"): the PATCHES footer is one 76-character line, and a long title
+ * pushed "did not finish (exit N ...)" off it (MPC One report, #64). */
+static const char *short_title(const char *t, char *out, size_t n) {
+    snprintf(out, n, "%.*s", (int)strcspn(t, ":"), t);
+    return out[0] ? out : t;
+}
+
 /* The result of a restarting patch, written by patch-run.sh while MPC was stopped: reported once, by the manager loaded after it. */
 static void show_patch_result(mgr_t *m) {   /* called with m->mu held, after patches_load */
     char mine[96];
@@ -1381,8 +1388,8 @@ static void show_patch_result(mgr_t *m) {   /* called with m->mu held, after pat
     logf_("patch %s %s (detached): exit %d, now %s", id, verb, rc, state);
     int good = rc == 0 && (undo ? strcmp(state, "patched") : !strcmp(state, "patched"));
     if (good) say_locked(m, OK, "%s: %s while MPC restarted. Now: %s.", title, undo ? "removed" : "applied", state);
-    else say_locked(m, ERR, "%s: %s did not finish (exit %d, now %s). %s (log: " WORK "/patch-%s.log)", title, undo ? "removing" : "applying",
-                    rc, state, last, id);
+    else { char st[64]; say_locked(m, ERR, "%s: %s did not finish (exit %d, now %s). %s (log: " WORK "/patch-%s.log)", short_title(title, st, sizeof st), undo ? "removing" : "applying",
+                    rc, state, last, id); }
     m->rev++;
 }
 
@@ -1499,7 +1506,7 @@ static void do_papply(mgr_t *m) {
     logf_("patch %s %s: exit %d, now %s", p.id, undo ? "uninstall" : "install", rc, state);
     int good = rc == 0 && (undo ? strcmp(state, "patched") : !strcmp(state, "patched"));
     if (good) say(m, OK, "%s: %s. Now: %s.", p.title, undo ? "removed" : "applied", state);
-    else say(m, ERR, "%s: %s did not finish (exit %d, now %s). %s", p.title, undo ? "removing" : "applying", rc, state, last);
+    else { char st[64]; say(m, ERR, "%s: %s did not finish (exit %d, now %s). %s", short_title(p.title, st, sizeof st), undo ? "removing" : "applying", rc, state, last); }
 }
 
 /* The theme: the skin the device runs is the folder "Plugin Skins" in this plugin's own folder. Both skins ship there as "Plugin Skins.dark"
